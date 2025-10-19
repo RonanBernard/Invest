@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import io
+import os
+import sys
 from dataclasses import asdict
 from typing import Dict, List
 
@@ -11,6 +13,12 @@ import datetime
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+
+# Ensure package import works on Streamlit Cloud when CWD != repo root
+_THIS_DIR = os.path.dirname(__file__)
+_REPO_ROOT = os.path.abspath(os.path.join(_THIS_DIR, "..", ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 
 from real_estate_roi.core.model import InvestmentInputs, RealEstateModel
 from real_estate_roi.core import plots
