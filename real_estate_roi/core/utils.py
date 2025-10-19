@@ -83,17 +83,25 @@ def future_value_with_monthly_withdrawals(
     annual_rate: float,
     monthly_payment: float,
     months: int,
+    payment_growth_annual: float = 0.0,
 ) -> float:
-    """Future value after monthly compounding with fixed monthly outflows.
+    """Future value after monthly compounding with monthly outflows.
 
-    Simulates: for m in 1..months: value = value*(1+r_m) - monthly_payment
+    - Grows capital monthly at r_m = (1+r_a)^(1/12) - 1
+    - Withdraws "monthly_payment" each month
+    - Optionally grows the monthly payment at a monthly growth derived
+      from the provided annual growth rate (e.g. inflation)
     """
     if months <= 0:
         return float(down_payment)
     r_m = monthly_rate_from_annual(annual_rate)
+    g_m = monthly_rate_from_annual(payment_growth_annual)
     value = float(down_payment)
+    pay = float(monthly_payment)
     for _ in range(months):
-        value = value * (1.0 + r_m) - monthly_payment
+        value = value * (1.0 + r_m) - pay
+        # increase next month's payment by growth (if any)
+        pay *= (1.0 + g_m)
     return value
 
 
@@ -102,23 +110,30 @@ def benchmark_annual_table(
     annual_rate: float,
     monthly_rent: float,
     years: int,
+    inflation_rate: float = 0.0,
 ):
     """Return lists for each year: apport_value, rent_cost, net = apport - rent.
 
     - apport_value uses yearly compounding without subtracting rent from the capital,
       i.e., value_y = down_payment * (1+rate)^y
-    - rent_cost = 12 * monthly_rent * y (cumulative)
+    - rent_cost grows with inflation: annual_rent_y = 12 * monthly_rent * (1+inflation)^(y-1)
+      and cumulative is the sum up to y
     - net = apport_value - rent_cost
     """
     apport_values = []
     rent_costs = []
     nets = []
+    cumulative_rent = 0.0
     for y in range(0, years + 1):
         apport_val = down_payment * ((1 + annual_rate) ** y)
-        rent_cost = 12.0 * monthly_rent * y
-        net_val = apport_val - rent_cost
+        if y == 0:
+            cumulative_rent = 0.0
+        else:
+            annual_rent_y = 12.0 * monthly_rent * ((1.0 + inflation_rate) ** (y - 1))
+            cumulative_rent += annual_rent_y
+        net_val = apport_val - cumulative_rent
         apport_values.append(apport_val)
-        rent_costs.append(rent_cost)
+        rent_costs.append(cumulative_rent)
         nets.append(net_val)
     return apport_values, rent_costs, nets
 

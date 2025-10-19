@@ -20,9 +20,9 @@ maintenance_rate_of_value: 1 # %
 
 # Growth & timeline
 benchmark_return_rate: 5 # %
-price_growth_rate: 2 # %
+price_growth_rate: 0 # %
 inflation_rate: 2 # %
-invest_duration: 10
+invest_duration: 5
 
 # Discounting
 discount_rate: 4 # % (taux d'actualisation commun)
@@ -38,5 +38,6 @@ rental_tax_rate: 30 # %
 # Exit costs/taxes
 selling_fees_rate: 5 # %
 capital_gains_eff_rate: 0 # % for RP by default
-include_early_repayment_penalty: false
+include_early_repayment_penalty: true
 benchmark_rent_monthly: 800.0
+

@@ -75,3 +75,54 @@ def irr_sensitivity_curve(xs: List[float], ys: List[float], x_label: str) -> go.
     return fig
 
 
+# Generic curve for delta NPV
+def delta_npv_curve(xs: List[float], ys: List[float], x_label: str) -> go.Figure:
+    fig = go.Figure(go.Scatter(x=xs, y=ys, mode="lines+markers"))
+    fig.update_layout(
+        title=f"Δ NPV (RP vs Benchmark) vs {x_label}", xaxis_title=x_label, yaxis_title="€"
+    )
+    return fig
+
+
+def delta_npv_surface(
+    x_vals: List[float],
+    y_vals: List[float],
+    z_matrix: List[List[float]],
+    x_label: str,
+    y_label: str,
+) -> go.Figure:
+    """3D surface for Δ NPV over two parameters.
+
+    x_vals: list of x axis values (e.g., price growth)
+    y_vals: list of y axis values (e.g., benchmark return)
+    z_matrix: len(y_vals) rows, each len(x_vals) columns
+    """
+    fig = go.Figure(
+        data=[
+            go.Surface(
+                x=x_vals,
+                y=y_vals,
+                z=z_matrix,
+                colorscale="Viridis",
+                contours={
+                    "z": {
+                        "show": True,
+                        "usecolormap": True,
+                        "highlightcolor": "white",
+                        "project_z": True,
+                    }
+                },
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Δ NPV (RP vs Benchmark)",
+        scene=dict(
+            xaxis_title=x_label,
+            yaxis_title=y_label,
+            zaxis_title="Δ NPV (€)",
+        ),
+        margin=dict(l=0, r=0, b=0, t=40),
+    )
+    return fig
+

@@ -22,7 +22,7 @@ if _REPO_ROOT not in sys.path:
 
 from real_estate_roi.core.model import InvestmentInputs, RealEstateModel
 from real_estate_roi.core import plots
-from real_estate_roi.core.utils import benchmark_annual_table
+from real_estate_roi.core.utils import benchmark_annual_table, future_value_with_monthly_withdrawals
 from config import (
     PRICE,
     NOTARY_PCT,
@@ -193,7 +193,9 @@ def render_summary(owner_res: Dict[str, object], rental_res: Dict[str, object], 
     # Benchmark NPV: construit flux benchmark et applique NPV
     bm_cfs = [-float(model.inputs.down_payment)]
     for y in range(1, model.n_years + 1):
-        cf = -12.0 * float(model.inputs.benchmark_rent_monthly)
+        # Rent grows with inflation
+        rent_y = 12.0 * float(model.inputs.benchmark_rent_monthly) * ((1.0 + float(model.inputs.inflation_rate)) ** (y - 1))
+        cf = -rent_y
         if y == model.n_years:
             cf += float(model.benchmark_apport())
         bm_cfs.append(cf)
@@ -211,10 +213,14 @@ def render_summary(owner_res: Dict[str, object], rental_res: Dict[str, object], 
         kpi_card("Cumulé (Benchmark)", f"{bm_cum:,.0f} €")
     with c3:
         kpi_card("NPV (RP)", f"{owner_npv:,.0f} €")
+        st.caption(f"Δ vs Benchmark: {(owner_npv - bm_npv):,.0f} €")
         kpi_card("Cumulé (RP)", f"{owner_cum:,.0f} €")
+        st.caption(f"Δ cumulé vs Benchmark: {(owner_cum - bm_cum):,.0f} €")
     with c4:
         kpi_card("NPV (Location)", f"{rental_npv:,.0f} €")
+        st.caption(f"Δ vs Benchmark: {(rental_npv - bm_npv):,.0f} €")
         kpi_card("Cumulé (Location)", f"{rental_cum:,.0f} €")
+        st.caption(f"Δ cumulé vs Benchmark: {(rental_cum - bm_cum):,.0f} €")
 
     if model.inputs.sale_year < model.inputs.purchase_year + 2:
         st.warning("Attention: année de vente < année d'achat + 2 ans (simplification fiscale)")
@@ -238,9 +244,17 @@ def render_graphs(owner_res: Dict[str, object], rental_res: Dict[str, object], m
         png_rental = fig_cf_rental.to_image(format="png")
         st.download_button("Exporter PNG (Location)", data=png_rental, file_name="cashflow_location.png", mime="image/png")
 
-    benchmark_series = build_benchmark_series(
-        down_payment=model.inputs.down_payment, rate=model.inputs.benchmark_return_rate, years=model.n_years
-    )
+    # Benchmark series including monthly rent withdrawals
+    benchmark_series = []
+    for y in range(0, model.n_years + 1):
+        months = y * 12
+        val = future_value_with_monthly_withdrawals(
+            down_payment=float(model.inputs.down_payment),
+            annual_rate=float(model.inputs.benchmark_return_rate),
+            monthly_payment=max(0.0, float(model.inputs.benchmark_rent_monthly)),
+            months=months,
+        )
+        benchmark_series.append(val)
     fig_worth = plots.net_worth_curve(owner_df, rental_df, benchmark_series, model.inputs.purchase_year)
     st.plotly_chart(fig_worth, use_container_width=True)
     st.download_button("Exporter PNG (Patrimoine)", data=fig_worth.to_image(format="png"), file_name="patrimoine.png", mime="image/png")
@@ -326,6 +340,7 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
             annual_rate=model.inputs.benchmark_return_rate,
             monthly_rent=float(model.inputs.benchmark_rent_monthly),
             years=model.n_years,
+            inflation_rate=float(model.inputs.inflation_rate),
         )
         bm_df = pd.DataFrame(
             {
@@ -510,39 +525,78 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
 
 
 def render_sensitivity(model: RealEstateModel):
-    st.subheader("Sensibilité IRR")
-    # ±2 points around current values
-    lr_min = max(0.0, model.inputs.loan_rate - 0.02)
-    lr_max = model.inputs.loan_rate + 0.02
-    pr_min = max(0.0, model.inputs.price_growth_rate - 0.02)
+    st.subheader("Sensibilité Δ NPV (RP vs Benchmark)")
+    # Baseline delta NPV = NPV(RP) - NPV(Benchmark)
+    def delta_npv_for(temp_inputs: InvestmentInputs) -> float:
+        m = RealEstateModel(temp_inputs)
+        discount = float(temp_inputs.discount_rate)
+        owner = float(m.npv(discount, "owner") or 0.0)
+        # Build benchmark cashflows consistent with résumé logic
+        bm_cfs = [-float(temp_inputs.down_payment)]
+        for y in range(1, m.n_years + 1):
+            rent_y = 12.0 * float(temp_inputs.benchmark_rent_monthly) * ((1.0 + float(temp_inputs.inflation_rate)) ** (y - 1))
+            cf = -rent_y
+            if y == m.n_years:
+                cf += float(m.benchmark_apport())
+            bm_cfs.append(cf)
+        bm_npv = 0.0
+        for t, cf in enumerate(bm_cfs):
+            bm_npv += cf / ((1 + discount) ** t)
+        return owner - bm_npv
+
+    # Ranges around current values
+    pr_min = max(-0.1, model.inputs.price_growth_rate - 0.02)
     pr_max = model.inputs.price_growth_rate + 0.02
+    hr_min = max(1, model.n_years - 2)
+    hr_max = model.n_years + 2
     ar_min = max(0.0, model.inputs.benchmark_return_rate - 0.02)
     ar_max = model.inputs.benchmark_return_rate + 0.02
 
-    loan_rates = np.linspace(lr_min, lr_max, 9).tolist()
     price_rates = np.linspace(pr_min, pr_max, 9).tolist()
+    horizons = list(range(hr_min, hr_max + 1))
     alt_returns = np.linspace(ar_min, ar_max, 9).tolist()
-
-    def irr_for(rate: float, kind: str) -> float:
-        # Clone inputs and change a single parameter
-        data = asdict(model.inputs)
-        data[kind] = float(rate)
-        m = RealEstateModel(InvestmentInputs(**data))
-        return float(m.irr("rental") or 0.0)
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        irr_vals = [irr_for(r, "loan_rate") for r in loan_rates]
-        fig = plots.irr_sensitivity_curve(loan_rates, irr_vals, "Taux crédit")
+        ys = []
+        for r in price_rates:
+            data = asdict(model.inputs)
+            data["price_growth_rate"] = float(r)
+            ys.append(delta_npv_for(InvestmentInputs(**data)))
+        fig = plots.delta_npv_curve(price_rates, ys, "Évolution prix immo")
         st.plotly_chart(fig, use_container_width=True)
     with c2:
-        irr_vals = [irr_for(r, "price_growth_rate") for r in price_rates]
-        fig = plots.irr_sensitivity_curve(price_rates, irr_vals, "Évolution prix immo")
+        ys = []
+        for h in horizons:
+            data = asdict(model.inputs)
+            data["sale_year"] = int(data["purchase_year"]) + int(h)
+            ys.append(delta_npv_for(InvestmentInputs(**data)))
+        fig = plots.delta_npv_curve([float(h) for h in horizons], ys, "Horizon avant vente (années)")
         st.plotly_chart(fig, use_container_width=True)
     with c3:
-        irr_vals = [irr_for(r, "benchmark_return_rate") for r in alt_returns]
-        fig = plots.irr_sensitivity_curve(alt_returns, irr_vals, "Rendement benchmark")
+        ys = []
+        for r in alt_returns:
+            data = asdict(model.inputs)
+            data["benchmark_return_rate"] = float(r)
+            ys.append(delta_npv_for(InvestmentInputs(**data)))
+        fig = plots.delta_npv_curve(alt_returns, ys, "Rendement benchmark")
         st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("Surface 3D: Δ NPV (RP vs Benchmark)")
+    # Build grid for surface: X=price growth, Y=benchmark return
+    x_vals = price_rates
+    y_vals = alt_returns
+    z_rows: List[List[float]] = []
+    for br in y_vals:
+        row = []
+        for pr in x_vals:
+            data = asdict(model.inputs)
+            data["price_growth_rate"] = float(pr)
+            data["benchmark_return_rate"] = float(br)
+            row.append(delta_npv_for(InvestmentInputs(**data)))
+        z_rows.append(row)
+    fig3d = plots.delta_npv_surface(x_vals, y_vals, z_rows, "Évolution prix immo", "Rendement benchmark")
+    st.plotly_chart(fig3d, use_container_width=True)
 
 
 def render_report(owner_res: Dict[str, object], rental_res: Dict[str, object], model: RealEstateModel):

@@ -173,7 +173,8 @@ class RealEstateModel:
             ) if y <= len(self.amort_yearly) else 0.0
             prop_val = self._property_value_at(y)
             cum_cash = sum(cashflows)
-            net_worth = prop_val - end_balance + cum_cash
+            # Net worth as if selling at end of year y: cumulative cash + net sale proceeds
+            net_worth = cum_cash + self.sale_proceeds(y)
 
             rows.append(
                 {
@@ -236,7 +237,8 @@ class RealEstateModel:
             ) if y <= len(self.amort_yearly) else 0.0
             prop_val = self._property_value_at(y)
             cum_cash = sum(cashflows)
-            net_worth = prop_val - end_balance + cum_cash
+            # Net worth as if selling at end of year y: cumulative cash + net sale proceeds
+            net_worth = cum_cash + self.sale_proceeds(y)
 
             rows.append(
                 {
