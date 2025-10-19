@@ -52,6 +52,8 @@ class InvestmentInputs:
     capital_gains_eff_rate: float = 0.0  # 0% for RP by default
     include_early_repayment_penalty: bool = False
     benchmark_rent_monthly: float = 800.0
+    # Discounting
+    discount_rate: float = 0.02
 
 
 class RealEstateModel:
@@ -192,7 +194,7 @@ class RealEstateModel:
             "cashflows": cashflows,
             "yearly": df,
             "irr": irr_fn(cashflows),
-            "npv": npv_fn(self.inputs.loan_rate, cashflows),
+            "npv": npv_fn(self.inputs.discount_rate, cashflows),
             "monthly_payment": self.amort.payment_monthly,
             "sale_proceeds": self.sale_proceeds(self.n_years) if self.n_years > 0 else 0.0,
         }
@@ -257,7 +259,7 @@ class RealEstateModel:
             "cashflows": cashflows,
             "yearly": df,
             "irr": irr_fn(cashflows),
-            "npv": npv_fn(self.inputs.loan_rate, cashflows),
+            "npv": npv_fn(self.inputs.discount_rate, cashflows),
             "monthly_payment": self.amort.payment_monthly,
             "sale_proceeds": self.sale_proceeds(self.n_years) if self.n_years > 0 else 0.0,
         }
@@ -281,7 +283,7 @@ class RealEstateModel:
         return None
 
     def npv(self, discount_rate: Optional[float] = None, scenario: str = "owner") -> Optional[float]:
-        rate = self.inputs.loan_rate if discount_rate is None else float(discount_rate)
+        rate = self.inputs.discount_rate if discount_rate is None else float(discount_rate)
         if scenario == "owner":
             return npv_fn(rate, self.run_owner()["cashflows"])  # type: ignore[index]
         if scenario == "rental":

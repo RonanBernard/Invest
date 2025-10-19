@@ -43,6 +43,7 @@ BENCHMARK_RETURN_RATE: float = float(CFG["benchmark_return_rate"]) / 100.0
 PRICE_GROWTH_RATE: float = float(CFG["price_growth_rate"]) / 100.0
 INFLATION_RATE: float = float(CFG["inflation_rate"]) / 100.0
 INVEST_DURATION: int = int(CFG["invest_duration"])
+DISCOUNT_RATE: float = float(CFG["discount_rate"]) / 100.0
 
 # Rental specific
 OCCUPANCY_RATE: float = float(CFG["occupancy_rate"])  # already 0..1

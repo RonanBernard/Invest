@@ -34,6 +34,7 @@ from config import (
     PRICE_GROWTH_RATE,
     INFLATION_RATE,
     INVEST_DURATION,
+    DISCOUNT_RATE,
     OCCUPANCY_RATE,
     RENT_MONTHLY,
     RENT_GROWTH_RATE,
@@ -85,6 +86,8 @@ def sidebar_inputs() -> InvestmentInputs:
     price_growth_rate = price_growth_rate / 100.0
     inflation_rate = st.sidebar.number_input("Inflation (% annuel)", min_value=-100.0, max_value=100.0, value=INFLATION_RATE * 100.0, step=0.1, format="%0.1f")
     inflation_rate = inflation_rate / 100.0
+    discount_rate_input = st.sidebar.number_input("Taux d'actualisation (% annuel)", min_value=-100.0, max_value=100.0, value=DISCOUNT_RATE * 100.0, step=0.1, format="%0.1f")
+    discount_rate = discount_rate_input / 100.0
     # Horizon only: compute sale_year from default purchase_year + horizon
     defaults = default_inputs()
     default_horizon = int(INVEST_DURATION)
@@ -135,6 +138,7 @@ def sidebar_inputs() -> InvestmentInputs:
         benchmark_return_rate=benchmark_return_rate,
         price_growth_rate=price_growth_rate,
         inflation_rate=inflation_rate,
+        discount_rate=discount_rate,
         purchase_year=purchase_year,
         sale_year=sale_year,
         occupancy_rate=occupancy_rate,
@@ -174,8 +178,8 @@ def render_summary(owner_res: Dict[str, object], rental_res: Dict[str, object], 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         kpi_card("Mensualité", f"{model.amort.payment_monthly:,.0f} €")
-    # NPV des cashflows (actualisé à l'inflation par défaut)
-    discount = float(model.inputs.inflation_rate)
+    # NPV des cashflows (taux d'actualisation unifié)
+    discount = float(model.inputs.discount_rate)
     owner_npv = float(model.npv(discount_rate=discount, scenario="owner") or 0.0)
     rental_npv = float(model.npv(discount_rate=discount, scenario="rental") or 0.0)
     # Benchmark NPV: construit flux benchmark et applique NPV
