@@ -228,21 +228,9 @@ def render_summary(owner_res: Dict[str, object], rental_res: Dict[str, object], 
 
 def render_graphs(owner_res: Dict[str, object], rental_res: Dict[str, object], model: RealEstateModel):
     st.subheader("Graphiques")
+    st.info("Aucun graphique de cashflow affiché.")
     owner_df = owner_res["yearly"]  # type: ignore[index]
     rental_df = rental_res["yearly"]  # type: ignore[index]
-
-    c1, c2 = st.columns(2)
-    with c1:
-        fig_cf_owner = plots.cashflow_bars(owner_df, title="Cashflow annuel (RP)")
-        st.plotly_chart(fig_cf_owner, use_container_width=True)
-        png_owner = fig_cf_owner.to_image(format="png")
-        st.download_button("Exporter PNG (RP)", data=png_owner, file_name="cashflow_rp.png", mime="image/png")
-
-    with c2:
-        fig_cf_rental = plots.cashflow_bars(rental_df, title="Cashflow annuel (Location)")
-        st.plotly_chart(fig_cf_rental, use_container_width=True)
-        png_rental = fig_cf_rental.to_image(format="png")
-        st.download_button("Exporter PNG (Location)", data=png_rental, file_name="cashflow_location.png", mime="image/png")
 
     # Benchmark series including monthly rent withdrawals
     benchmark_series = []
@@ -265,6 +253,58 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
     view_monthly = st.toggle("Voir en mensuel", value=False)
 
     if not view_monthly:
+        # Benchmark apport – tableau annuel (d'abord)
+        st.markdown("Benchmark apport (annuel)")
+        try:
+            apport_vals, rent_costs, nets = benchmark_annual_table(
+                down_payment=model.inputs.down_payment,
+                annual_rate=model.inputs.benchmark_return_rate,
+                monthly_rent=float(model.inputs.benchmark_rent_monthly),
+                years=model.n_years,
+                inflation_rate=float(model.inputs.inflation_rate),
+            )
+        except TypeError:
+            apport_vals, rent_costs, nets = benchmark_annual_table(
+                down_payment=model.inputs.down_payment,
+                annual_rate=model.inputs.benchmark_return_rate,
+                monthly_rent=float(model.inputs.benchmark_rent_monthly),
+                years=model.n_years,
+            )
+
+        bm_cfs = [-float(model.inputs.down_payment)]
+        for y in range(1, model.n_years + 1):
+            rent_y = 12.0 * float(model.inputs.benchmark_rent_monthly) * (
+                (1.0 + float(model.inputs.inflation_rate)) ** (y - 1)
+            )
+            cf = -rent_y
+            if y == model.n_years:
+                cf += float(model.benchmark_apport())
+            bm_cfs.append(cf)
+
+        bm_cum = []
+        total = 0.0
+        for cf in bm_cfs:
+            total += float(cf)
+            bm_cum.append(total)
+
+        bm_df = pd.DataFrame(
+            {
+                "year": list(range(0, model.n_years + 1)),
+                "apport": apport_vals,
+                "loyer": rent_costs,
+                "net": nets,
+                "cashflow": bm_cfs,
+                "cumulative_cash": bm_cum,
+            }
+        )
+        st.dataframe(style_with_commas(bm_df), use_container_width=True)
+        st.download_button(
+            "Exporter CSV Benchmark",
+            data=bm_df.to_csv(index=False).encode("utf-8"),
+            file_name="benchmark_annuel.csv",
+            mime="text/csv",
+        )
+
         st.markdown("Amortissement (annuel)")
         amort_yearly = model.amort_yearly.copy()
         amort_yearly["cashflow"] = -amort_yearly["payment"]
@@ -333,33 +373,51 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
         )
         st.markdown(f"Produit net de vente (fin): {rental_res.get('sale_proceeds', 0.0):,.0f} €")
 
-        # Benchmark apport – tableau annuel Apport / Loyer / Net
-        st.markdown("Benchmark apport (annuel)")
-        apport_vals, rent_costs, nets = benchmark_annual_table(
-            down_payment=model.inputs.down_payment,
-            annual_rate=model.inputs.benchmark_return_rate,
-            monthly_rent=float(model.inputs.benchmark_rent_monthly),
-            years=model.n_years,
-            inflation_rate=float(model.inputs.inflation_rate),
-        )
-        bm_df = pd.DataFrame(
-            {
-                "year": list(range(0, model.n_years + 1)),
-                "apport": apport_vals,
-                "loyer": rent_costs,
-                "net": nets,
-            }
-        )
-        st.dataframe(style_with_commas(bm_df), use_container_width=True)
-        st.download_button(
-            "Exporter CSV Benchmark",
-            data=bm_df.to_csv(index=False).encode("utf-8"),
-            file_name="benchmark_annuel.csv",
-            mime="text/csv",
-        )
         return
 
     # ---- Monthly view ---- #
+    # Benchmark apport – tableau mensuel en premier
+    st.markdown("Benchmark apport (mensuel)")
+    months_total_local = model.n_years * 12
+    bm_rows_m = []
+    bm_rows_m.append({
+        "year": 0,
+        "month": 0,
+        "apport": model.inputs.down_payment,
+        "loyer": 0.0,
+        "net": model.inputs.down_payment,
+        "cashflow": -float(model.inputs.down_payment),
+        "cumulative_cash": -float(model.inputs.down_payment),
+    })
+    cum_cash_bm = -float(model.inputs.down_payment)
+    g_m = (1.0 + float(model.inputs.inflation_rate)) ** (1.0 / 12.0) - 1.0
+    rent_m = float(model.inputs.benchmark_rent_monthly)
+    for m in range(1, months_total_local + 1):
+        year_idx = (m - 1) // 12 + 1
+        if m > 1:
+            rent_m *= (1.0 + g_m)
+        cf = -rent_m
+        if m == months_total_local:
+            cf += float(model.benchmark_apport())
+        cum_cash_bm += cf
+        bm_rows_m.append({
+            "year": year_idx,
+            "month": m - (year_idx - 1) * 12,
+            "apport": None,
+            "loyer": None,
+            "net": None,
+            "cashflow": cf,
+            "cumulative_cash": cum_cash_bm,
+        })
+    bm_monthly_df = pd.DataFrame(bm_rows_m)
+    st.dataframe(style_with_commas(bm_monthly_df), use_container_width=True)
+    st.download_button(
+        "Exporter CSV Benchmark (mensuel)",
+        data=bm_monthly_df.to_csv(index=False).encode("utf-8"),
+        file_name="benchmark_mensuel.csv",
+        mime="text/csv",
+    )
+
     st.markdown("Amortissement (mensuel)")
     amort_monthly = model.amort.schedule_monthly.copy()
     amort_monthly["cashflow"] = -amort_monthly["payment"]
@@ -520,8 +578,43 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
     )
     st.markdown(f"Produit net de vente (fin): {model.sale_proceeds(model.n_years):,.0f} €")
 
-    st.markdown("Hypothèses")
-    st.json(asdict(model.inputs))
+    # Benchmark apport – tableau mensuel (mêmes colonnes que l'annuel)
+    st.markdown("Benchmark apport (mensuel)")
+    months_total = model.n_years * 12
+    # Build monthly cashflows for benchmark with inflation growth on rent (converted monthly)
+    bm_rows_m = []
+    # CF0
+    bm_rows_m.append({"year": 0, "month": 0, "apport": model.inputs.down_payment, "loyer": 0.0, "net": model.inputs.down_payment, "cashflow": -float(model.inputs.down_payment), "cumulative_cash": -float(model.inputs.down_payment)})
+    cum_cash_bm = -float(model.inputs.down_payment)
+    # Monthly growth from annual inflation
+    g_m = (1.0 + float(model.inputs.inflation_rate)) ** (1.0 / 12.0) - 1.0
+    rent_m = float(model.inputs.benchmark_rent_monthly)
+    for m in range(1, months_total + 1):
+        year_idx = (m - 1) // 12 + 1
+        # grow rent monthly
+        if m > 1:
+            rent_m *= (1.0 + g_m)
+        cf = -rent_m
+        if m == months_total:
+            cf += float(model.benchmark_apport())
+        cum_cash_bm += cf
+        bm_rows_m.append({
+            "year": year_idx,
+            "month": m - (year_idx - 1) * 12,
+            "apport": None,
+            "loyer": None,
+            "net": None,
+            "cashflow": cf,
+            "cumulative_cash": cum_cash_bm,
+        })
+    bm_monthly_df = pd.DataFrame(bm_rows_m)
+    st.dataframe(style_with_commas(bm_monthly_df), use_container_width=True)
+    st.download_button(
+        "Exporter CSV Benchmark (mensuel)",
+        data=bm_monthly_df.to_csv(index=False).encode("utf-8"),
+        file_name="benchmark_mensuel.csv",
+        mime="text/csv",
+    )
 
 
 def render_sensitivity(model: RealEstateModel):
