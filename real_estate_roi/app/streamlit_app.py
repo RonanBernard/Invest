@@ -269,17 +269,7 @@ def render_tables(renting_1_res: Dict[str, object], renting_2_res: Dict[str, obj
         # IF-Vente avant Vente
         st.markdown("Cashflows - Location 1 (annuel)")
         renting_1_annual_df = renting_1_res["annuel"]  # type: ignore[index]
-        '''
-        desired_cols_renting_1_annual = [
-            "year",
-            "invested_value",
-            "gains",
-            "additional_savings",
-            "cashflow",
-            "cashflows_cumulés",
-        ]
-        renting_1_annual_df_disp = renting_1_annual_df[[c for c in desired_cols_renting_1_annual if c in renting_1_annual_df.columns]]
-        '''
+
         st.dataframe(style_with_commas(renting_1_annual_df), use_container_width=True)
 
         st.download_button(
@@ -291,7 +281,7 @@ def render_tables(renting_1_res: Dict[str, object], renting_2_res: Dict[str, obj
 
         st.markdown("Amortissement (annuel)")
         amort_yearly = model.amort_yearly.copy()
-        amort_yearly["cashflow"] = -amort_yearly["payment"]
+        amort_yearly["cashflows"] = -amort_yearly["mensualité"]
         init_row_yearly = {
             "année": 0,
             "mensualité": 0.0,
@@ -367,19 +357,19 @@ def render_tables(renting_1_res: Dict[str, object], renting_2_res: Dict[str, obj
 
     st.markdown("Amortissement (mensuel)")
     amort_monthly = model.amort.schedule_monthly.copy()
-    amort_monthly["cashflow"] = -amort_monthly["payment"]
+    amort_monthly["cashflows"] = -amort_monthly["mensualité"]
     init_row_monthly = {
-        "year": 0,
-        "month": 0,
-        "payment": 0.0,
-        "interest": 0.0,
+        "année": 0,
+        "mois": 0,
+        "mensualité": 0.0,
+        "intérêts": 0.0,
         "principal": 0.0,
-        "balance": float(model.loan_principal_value),
-        "cashflow": -float(model.inputs.down_payment),
+        "solde_restant_du_crédit": float(model.loan_principal_value),
+        "cashflows": -float(model.inputs.down_payment),
     }
     amort_monthly = pd.concat(
         [pd.DataFrame([init_row_monthly]), amort_monthly], ignore_index=True
-    ).sort_values("month").reset_index(drop=True)
+    ).sort_values("mois_global").reset_index(drop=True)
     st.dataframe(style_with_commas(amort_monthly), use_container_width=True)
     st.download_button(
         "Exporter CSV Amortissement (mensuel)",

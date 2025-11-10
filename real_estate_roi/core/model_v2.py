@@ -136,7 +136,7 @@ class RealEstateModel:
         # Outstanding balance at end of that year:
         try:
             end_balance = float(
-                self.amort_yearly.loc[self.amort_yearly["year"] == year_index, "end_balance"].values[0]
+                self.amort_yearly.loc[self.amort_yearly["année"] == year_index, "solde_restant_du_crédit"].values[0]
             )
         except IndexError:
             end_balance = 0.0
@@ -159,7 +159,7 @@ class RealEstateModel:
         """
         try:
             end_balance = float(
-                self.amort_yearly.loc[self.amort_yearly["year"] == year_index, "end_balance"].values[0]
+                self.amort_yearly.loc[self.amort_yearly["année"] == year_index, "solde_restant_du_crédit"].values[0]
             )
         except IndexError:
             end_balance = 0.0
@@ -222,7 +222,7 @@ class RealEstateModel:
                 try:
                     end_balance = float(
                         self.amort.schedule_monthly.loc[
-                            self.amort.schedule_monthly["global_month"] == global_month, "balance"
+                            self.amort.schedule_monthly["mois_global"] == global_month, "solde_restant_du_crédit"
                         ].values[0]
                     )
                 except IndexError:
@@ -334,7 +334,7 @@ class RealEstateModel:
                 try:
                     end_balance = float(
                         self.amort.schedule_monthly.loc[
-                            self.amort.schedule_monthly["global_month"] == global_month, "balance"
+                            self.amort.schedule_monthly["mois_global"] == global_month, "solde_restant_du_crédit"
                         ].values[0]
                     )
                 except IndexError:
@@ -451,7 +451,7 @@ class RealEstateModel:
                 try:
                     end_balance = float(
                         self.amort.schedule_monthly.loc[
-                            self.amort.schedule_monthly["global_month"] == global_month, "balance"
+                            self.amort.schedule_monthly["mois_global"] == global_month, "solde_restant_du_crédit"
                         ].values[0]
                     )
                 except IndexError:
@@ -471,7 +471,7 @@ class RealEstateModel:
                     try:
                         pmt = float(
                             self.amort.schedule_monthly.loc[
-                                self.amort.schedule_monthly["global_month"] == global_month, "payment"
+                                self.amort.schedule_monthly["mois_global"] == global_month, "mensualité"
                             ].values[0]
                         )
                     except IndexError:

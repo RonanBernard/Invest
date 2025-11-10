@@ -33,8 +33,18 @@ def _fixed_monthly_payment(principal: float, annual_rate: float, years: int) -> 
     if monthly_rate == 0:
         return principal / n_months
     factor = (1 + monthly_rate) ** n_months
+    
     return principal * (monthly_rate * factor) / (factor - 1)
 
+'''
+    if principal <= 0 or years <= 0:
+        return 0.0
+    if annual_rate == 0:
+        return principal / years
+    factor = (1 + annual_rate) ** years
+    
+    return principal * (annual_rate * factor) / (factor - 1) / 12
+'''
 
 def amort_schedule(principal: float, annual_rate: float, years: int) -> pd.DataFrame:
     """Generate a monthly amortization schedule.
@@ -57,13 +67,13 @@ def amort_schedule(principal: float, annual_rate: float, years: int) -> pd.DataF
     if n_months == 0:
         return pd.DataFrame(
             columns=[
-                "year",
-                "global_month",
-                "month",
-                "payment",
-                "interest",
+                "année",
+                "mois_global",
+                "mois",
+                "mensualité",
+                "intérêts",
                 "principal",
-                "balance",
+                "solde_restant_du_crédit",
             ],
             data=[],
         )
@@ -91,13 +101,13 @@ def amort_schedule(principal: float, annual_rate: float, years: int) -> pd.DataF
 
             rows.append(
                 {
-                "year": int(y),
-                "global_month": int(global_month),
-                "month": int(m),
-                "payment": float(payment),
-                "interest": float(interest),
+                "année": int(y),
+                "mois_global": int(global_month),
+                "mois": int(m),
+                "mensualité": float(payment),
+                "intérêts": float(interest),
                 "principal": float(principal_component),
-                "balance": float(max(new_balance, 0.0)),
+                "solde_restant_du_crédit": float(max(new_balance, 0.0)),
                 }
             )
             balance = max(new_balance, 0.0)
@@ -112,21 +122,21 @@ def aggregate_yearly(schedule: pd.DataFrame) -> pd.DataFrame:
     """
     if schedule.empty:
         return pd.DataFrame(
-            columns=["year", "payment", "interest", "principal", "end_balance"],
+            columns=["année", "mensualité", "intérêts", "principal", "solde_restant_du_crédit"],
             data=[],
         )
 
     schedule = schedule.copy()
     agg = (
-        schedule.groupby("year", as_index=False)[["payment", "interest", "principal"]]
+        schedule.groupby("année", as_index=False)[["mensualité", "intérêts", "principal"]]
         .sum()
-        .sort_values("year")
+        .sort_values("année")
     )
     # Capture ending balance per year
     end_balances = (
-        schedule.groupby("year", as_index=False)["balance"].last().rename(columns={"balance": "end_balance"})
+        schedule.groupby("année", as_index=False)["solde_restant_du_crédit"].last().rename(columns={"solde_restant_du_crédit": "solde_restant_du_crédit"})
     )
-    return agg.merge(end_balances, on="year", how="left")
+    return agg.merge(end_balances, on="année", how="left")
 
 
 @dataclass(frozen=True)
