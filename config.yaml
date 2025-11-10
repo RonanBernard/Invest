@@ -11,12 +11,12 @@ loan_years: 20
 down_payment: 100000.0
 
 # Recurring costs
-property_tax_annual: 1200.0
+property_tax_annual: 1000.0
 other_taxes_annual: 0.0
-insurance_rate_on_initial_per_year: 0.25  # 0.25%
+insurance_rate_on_initial_per_year: 0.15  # 0.15%
 copro_charges_annual: 1200.0
 copro_growth_rate: 2 # %
-maintenance_rate_of_value: 1 # %
+maintenance_rate_of_value: 0.2 # %
 
 # Growth & timeline
 benchmark_return_rate: 5 # %
@@ -29,7 +29,7 @@ evaluation_years: 10  # Horizon d'évaluation (années) > invest_duration
 discount_rate: 5 # % (taux d'actualisation commun) = taux de rentabilité moyen attendu si placement financier
 
 # Rental specific
-occupancy_rate: 0.92
+occupancy_rate: 0.95
 rent_monthly: 850  # 17 €/m2 x 50 m2
 rent_growth_rate: 2 # %
 management_fee_rate: 6 # %
