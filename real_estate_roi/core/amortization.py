@@ -39,7 +39,11 @@ def _fixed_monthly_payment(principal: float, annual_rate: float, years: int) -> 
 def amort_schedule(principal: float, annual_rate: float, years: int) -> pd.DataFrame:
     """Generate a monthly amortization schedule.
 
-    Columns: month (1..N), payment, interest, principal, balance
+    Columns:
+    - year (1..years)
+    - month_in_year (1..12)
+    - month (1..N global month index)
+    - payment, interest, principal, balance
 
     Notes
     -----
@@ -52,38 +56,51 @@ def amort_schedule(principal: float, annual_rate: float, years: int) -> pd.DataF
 
     if n_months == 0:
         return pd.DataFrame(
-            columns=["month", "payment", "interest", "principal", "balance"],
+            columns=[
+                "year",
+                "global_month",
+                "month",
+                "payment",
+                "interest",
+                "principal",
+                "balance",
+            ],
             data=[],
         )
 
     rows = []
     balance = float(principal)
-    for m in range(1, n_months + 1):
-        interest = balance * monthly_rate
-        principal_component = payment - interest
+    for y in range(1, years + 1):
+        for m in range(1, 12 + 1):
+            global_month = (y - 1) * 12 + m
+            interest = balance * monthly_rate
+            principal_component = payment - interest
 
-        # Guard against negative principal component due to extreme rates
-        if principal_component < 0:
-            principal_component = 0.0
+            # Guard against negative principal component due to extreme rates
+            if principal_component < 0:
+                principal_component = 0.0
 
-        new_balance = balance - principal_component
+            new_balance = balance - principal_component
 
-        # Final adjustment to avoid tiny negative balances from rounding
-        if m == n_months and abs(new_balance) < 1e-6:
-            principal_component += new_balance
-            payment = interest + principal_component
-            new_balance = 0.0
+            # Final adjustment to avoid tiny negative balances from rounding
+            if global_month == n_months and abs(new_balance) < 1e-6:
+                principal_component += new_balance
+                payment = interest + principal_component
+                new_balance = 0.0
 
-        rows.append(
-            {
-                "month": m,
+
+            rows.append(
+                {
+                "year": int(y),
+                "global_month": int(global_month),
+                "month": int(m),
                 "payment": float(payment),
                 "interest": float(interest),
                 "principal": float(principal_component),
                 "balance": float(max(new_balance, 0.0)),
-            }
-        )
-        balance = max(new_balance, 0.0)
+                }
+            )
+            balance = max(new_balance, 0.0)
 
     return pd.DataFrame(rows)
 
@@ -100,7 +117,6 @@ def aggregate_yearly(schedule: pd.DataFrame) -> pd.DataFrame:
         )
 
     schedule = schedule.copy()
-    schedule["year"] = (schedule["month"] - 1) // MONTHS_IN_YEAR + 1
     agg = (
         schedule.groupby("year", as_index=False)[["payment", "interest", "principal"]]
         .sum()

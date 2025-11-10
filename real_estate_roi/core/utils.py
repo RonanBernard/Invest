@@ -105,36 +105,12 @@ def future_value_with_monthly_withdrawals(
     return value
 
 
-def benchmark_annual_table(
-    down_payment: float,
-    annual_rate: float,
-    monthly_rent: float,
-    years: int,
-    inflation_rate: float = 0.0,
-):
-    """Return lists for each year: apport_value, rent_cost, net = apport - rent.
-
-    - apport_value uses yearly compounding without subtracting rent from the capital,
-      i.e., value_y = down_payment * (1+rate)^y
-    - rent_cost grows with inflation: annual_rent_y = 12 * monthly_rent * (1+inflation)^(y-1)
-      and cumulative is the sum up to y
-    - net = apport_value - rent_cost
-    """
-    apport_values = []
-    rent_costs = []
-    nets = []
-    cumulative_rent = 0.0
-    for y in range(0, years + 1):
-        apport_val = down_payment * ((1 + annual_rate) ** y)
-        if y == 0:
-            cumulative_rent = 0.0
-        else:
-            annual_rent_y = 12.0 * monthly_rent * ((1.0 + inflation_rate) ** (y - 1))
-            cumulative_rent += annual_rent_y
-        net_val = apport_val - cumulative_rent
-        apport_values.append(apport_val)
-        rent_costs.append(cumulative_rent)
-        nets.append(net_val)
-    return apport_values, rent_costs, nets
+# benchmark_annual_table has been superseded by RealEstateModel.run_financial_investment().
+# Keeping the importable name for backward compatibility in case third-party code uses it.
+def benchmark_annual_table(*args, **kwargs):  # type: ignore[unused-argument]
+    raise NotImplementedError(
+        "benchmark_annual_table moved to RealEstateModel.run_financial_investment(); "
+        "use model.run_financial_investment()['annual'] and ['apport_series'] instead"
+    )
 
 

@@ -180,7 +180,7 @@ real_estate_roi/
 - `class RealEstateModel:`
   - `run_owner()`
   - `run_rental()`
-  - `benchmark_apport()`
+  - `financial_investment()`
   - `sale_proceeds(year)`
   - `irr()`, `npv()`
 

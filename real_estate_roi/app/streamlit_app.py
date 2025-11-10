@@ -20,9 +20,9 @@ _REPO_ROOT = os.path.abspath(os.path.join(_THIS_DIR, "..", ".."))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
-from real_estate_roi.core.model import InvestmentInputs, RealEstateModel
+from real_estate_roi.core.model_v2 import InvestmentInputs, RealEstateModel
 from real_estate_roi.core import plots
-from real_estate_roi.core.utils import benchmark_annual_table, future_value_with_monthly_withdrawals
+from real_estate_roi.core.utils import monthly_rate_from_annual, npv as npv_fn
 from config import (
     PRICE,
     NOTARY_PCT,
@@ -43,6 +43,7 @@ from config import (
     INFLATION_RATE,
     INVEST_DURATION,
     DISCOUNT_RATE,
+    EVALUATION_YEARS,
     OCCUPANCY_RATE,
     RENT_MONTHLY,
     RENT_GROWTH_RATE,
@@ -52,6 +53,7 @@ from config import (
     CAPITAL_GAINS_EFF_RATE,
     INCLUDE_EARLY_REPAYMENT_PENALTY,
     BENCHMARK_RENT_MONTHLY,
+    FINANCIAL_INVESTMENT_TAX_RATE,
 )
 
 
@@ -89,34 +91,36 @@ def sidebar_inputs() -> InvestmentInputs:
     maintenance_rate_of_value = st.sidebar.number_input("Entretien (% valeur/an)", min_value=0.0, max_value=100.0, value=MAINTENANCE_RATE_OF_VALUE * 100.0, step=0.1, format="%0.1f")
     maintenance_rate_of_value = maintenance_rate_of_value / 100.0
 
-    st.sidebar.subheader("Évolution & horizon")
+    st.sidebar.subheader("Évolution & horizons")
     price_growth_rate = st.sidebar.number_input("Évolution prix immo (% annuel)", min_value=-100.0, max_value=100.0, value=PRICE_GROWTH_RATE * 100.0, step=0.1, format="%0.1f")
     price_growth_rate = price_growth_rate / 100.0
     inflation_rate = st.sidebar.number_input("Inflation (% annuel)", min_value=-100.0, max_value=100.0, value=INFLATION_RATE * 100.0, step=0.1, format="%0.1f")
     inflation_rate = inflation_rate / 100.0
     discount_rate_input = st.sidebar.number_input("Taux d'actualisation (% annuel)", min_value=-100.0, max_value=100.0, value=DISCOUNT_RATE * 100.0, step=0.1, format="%0.1f")
     discount_rate = discount_rate_input / 100.0
-    # Horizon only: compute sale_year from default purchase_year + horizon
-    defaults = default_inputs()
-    default_horizon = int(INVEST_DURATION)
-    horizon_years = int(st.sidebar.number_input("Horizon avant vente (années)", min_value=1, value=default_horizon, step=1))
+    # Horizons: sale horizon (vente) and evaluation horizon (KPIs)
+    horizon_years = int(st.sidebar.number_input("Horizon avant vente (années)", min_value=1, value=int(INVEST_DURATION), step=1))
     purchase_year = int(datetime.datetime.now().year)
     sale_year = int(purchase_year + horizon_years)
+    evaluation_years = int(st.sidebar.number_input("Horizon d'évaluation (années)", min_value=1, value=int(EVALUATION_YEARS), step=1))
 
     st.sidebar.subheader("Location")
     occupancy_rate = st.sidebar.number_input("Taux d'occupation %", min_value=0.0, max_value=100.0, value=OCCUPANCY_RATE * 100.0, step=0.1, format="%0.1f")
     occupancy_rate = occupancy_rate / 100.0
     rent_monthly = st.sidebar.number_input("Loyer mensuel €", min_value=0, value=int(RENT_MONTHLY), step=50)
-    rent_growth_rate = st.sidebar.number_input("Croissance loyer (annuel)", min_value=0.0, max_value=0.2, value=RENT_GROWTH_RATE, step=0.005, format="%0.3f")
+    rent_growth_rate = st.sidebar.number_input("Croissance loyer (% annuel)", min_value=0.0, max_value=100.0, value=RENT_GROWTH_RATE * 100.0, step=0.1, format="%0.1f")
+    rent_growth_rate = rent_growth_rate / 100.0
     management_fee_rate = st.sidebar.number_input("Frais gestion (% du loyer)", min_value=0.0, max_value=100.0, value=MANAGEMENT_FEE_RATE * 100.0, step=0.1, format="%0.1f")
     management_fee_rate = management_fee_rate / 100.0
     rental_tax_rate = st.sidebar.number_input("Fiscalité locative (taux effectif %)", min_value=0.0, max_value=100.0, value=RENTAL_TAX_RATE * 100.0, step=0.1, format="%0.1f")
     rental_tax_rate = rental_tax_rate / 100.0
 
-    st.sidebar.subheader("Benchmark financier")
-    benchmark_return_rate = st.sidebar.number_input("Rendement benchmark (% annuel)", min_value=0.0, max_value=100.0, value=BENCHMARK_RETURN_RATE * 100.0, step=0.1, format="%0.1f")
+    st.sidebar.subheader("Investissement financier (IF)")
+    benchmark_return_rate = st.sidebar.number_input("Rendement IF (% annuel)", min_value=0.0, max_value=100.0, value=BENCHMARK_RETURN_RATE * 100.0, step=0.1, format="%0.1f")
     benchmark_return_rate = benchmark_return_rate / 100.0
-    benchmark_rent_monthly = st.sidebar.number_input("Loyer à payer dans le benchmark (€/mois)", min_value=0, value=int(BENCHMARK_RENT_MONTHLY), step=50)
+    benchmark_rent_monthly = st.sidebar.number_input("Loyer à payer dans l'IF (€/mois)", min_value=0, value=int(BENCHMARK_RENT_MONTHLY), step=50)
+    fi_tax_rate_input = st.sidebar.number_input("Taxe sur IF à l'échéance (% du capital)", min_value=0.0, max_value=100.0, value=FINANCIAL_INVESTMENT_TAX_RATE * 100.0, step=0.1, format="%0.1f")
+    financial_investment_tax_rate = fi_tax_rate_input / 100.0
 
     st.sidebar.subheader("Vente")
     selling_fees_rate = st.sidebar.number_input("Frais de vente (%)", min_value=0.0, max_value=100.0, value=SELLING_FEES_RATE * 100.0, step=0.1, format="%0.1f")
@@ -149,6 +153,7 @@ def sidebar_inputs() -> InvestmentInputs:
         discount_rate=discount_rate,
         purchase_year=purchase_year,
         sale_year=sale_year,
+        evaluation_years=evaluation_years,
         occupancy_rate=occupancy_rate,
         rent_monthly=rent_monthly,
         rent_growth_rate=rent_growth_rate,
@@ -157,6 +162,7 @@ def sidebar_inputs() -> InvestmentInputs:
         selling_fees_rate=selling_fees_rate,
         capital_gains_eff_rate=capital_gains_eff_rate,
         benchmark_rent_monthly=benchmark_rent_monthly,
+        financial_investment_tax_rate=financial_investment_tax_rate,
         include_early_repayment_penalty=include_ira,
     )
 
@@ -181,127 +187,105 @@ def style_with_commas(df: pd.DataFrame):
     return df.style.format({col: "{:,.0f}" for col in num_cols})
 
 
-def render_summary(owner_res: Dict[str, object], rental_res: Dict[str, object], model: RealEstateModel):
+def render_summary(renting_1_res: Dict[str, object], renting_2_res: Dict[str, object], buying_1_res: Dict[str, object], buying_2_res: Dict[str, object], model: RealEstateModel):
     st.subheader("Résumé")
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         kpi_card("Mensualité", f"{model.amort.payment_monthly:,.0f} €")
     # NPV des cashflows (taux d'actualisation unifié)
     discount = float(model.inputs.discount_rate)
-    owner_npv = float(model.npv(discount_rate=discount, scenario="owner") or 0.0)
-    rental_npv = float(model.npv(discount_rate=discount, scenario="rental") or 0.0)
-    # Benchmark NPV: construit flux benchmark et applique NPV
-    bm_cfs = [-float(model.inputs.down_payment)]
-    for y in range(1, model.n_years + 1):
-        # Rent grows with inflation
-        rent_y = 12.0 * float(model.inputs.benchmark_rent_monthly) * ((1.0 + float(model.inputs.inflation_rate)) ** (y - 1))
-        cf = -rent_y
-        if y == model.n_years:
-            cf += float(model.benchmark_apport())
-        bm_cfs.append(cf)
-    # NPV benchmark
-    bm_npv = 0.0
-    for t, cf in enumerate(bm_cfs):
-        bm_npv += cf / ((1 + discount) ** t)
-    # Cumulative cashflows
-    bm_cum = float(sum(bm_cfs))
-    owner_cum = float(sum(owner_res.get("cashflows", [])))
-    rental_cum = float(sum(rental_res.get("cashflows", [])))
+
+    # NPV par scénario
+    buying_1_npv = float(model.npv(discount_rate=discount, scenario="buying_1") or 0.0)
+    buying_2_npv = float(model.npv(discount_rate=discount, scenario="buying_2") or 0.0)
+    renting_1_npv = float(model.npv(discount_rate=discount, scenario="renting_1") or 0.0)
+    renting_2_npv = float(model.npv(discount_rate=discount, scenario="renting_2") or 0.0)
+    # Cumulés
+    buying_1_cum = float(sum(buying_1_res.get("cashflows", [])))
+    buying_2_cum = float(sum(buying_2_res.get("cashflows", [])))
+    renting_1_cum = float(sum(renting_1_res.get("cashflows", [])))
+    renting_2_cum = float(sum(renting_2_res.get("cashflows", [])))
 
     with c2:
-        kpi_card("NPV (Benchmark)", f"{bm_npv:,.0f} €")
-        kpi_card("Cumulé (Benchmark)", f"{bm_cum:,.0f} €")
+        st.markdown("**Location 1 vs Achat 1**")
+        kpi_card("NPV (Location 1)", f"{renting_1_npv:,.0f} €")
+        st.markdown("&nbsp;", unsafe_allow_html=True)
+        kpi_card("Cumulé (Location 1)", f"{renting_1_cum:,.0f} €")
     with c3:
-        kpi_card("NPV (RP)", f"{owner_npv:,.0f} €")
-        st.caption(f"Δ vs Benchmark: {(owner_npv - bm_npv):,.0f} €")
-        kpi_card("Cumulé (RP)", f"{owner_cum:,.0f} €")
-        st.caption(f"Δ cumulé vs Benchmark: {(owner_cum - bm_cum):,.0f} €")
+        st.markdown("&nbsp;", unsafe_allow_html=True)
+        kpi_card("NPV (Achat 1)", f"{buying_1_npv:,.0f} €")
+        st.caption(f"Δ (Achat 1 − Location 1): {(buying_1_npv - renting_1_npv):,.0f} €")
+        kpi_card("Cumulé (Achat 1)", f"{buying_1_cum:,.0f} €")
+        st.caption(f"Δ cumulé (Achat 1 − Location 1): {(buying_1_cum - renting_1_cum):,.0f} €")
     with c4:
-        kpi_card("NPV (Location)", f"{rental_npv:,.0f} €")
-        st.caption(f"Δ vs Benchmark: {(rental_npv - bm_npv):,.0f} €")
-        kpi_card("Cumulé (Location)", f"{rental_cum:,.0f} €")
-        st.caption(f"Δ cumulé vs Benchmark: {(rental_cum - bm_cum):,.0f} €")
+        st.markdown("**Location 2 vs Achat 2**")
+        kpi_card("NPV (Location 2)", f"{renting_2_npv:,.0f} €")
+        st.markdown("&nbsp;", unsafe_allow_html=True)
+        kpi_card("Cumulé (Location 2)", f"{renting_2_cum:,.0f} €")
+    with c5:
+        st.markdown("&nbsp;", unsafe_allow_html=True)
+        kpi_card("NPV (Achat 2)", f"{buying_2_npv:,.0f} €")
+        st.caption(f"Δ (Achat 2 − Location 2): {(buying_2_npv - renting_2_npv):,.0f} €")
+        kpi_card("Cumulé (Achat 2)", f"{buying_2_cum:,.0f} €")
+        st.caption(f"Δ cumulé (Achat 2 − Location 2): {(buying_2_cum - renting_2_cum):,.0f} €")
 
     if model.inputs.sale_year < model.inputs.purchase_year + 2:
         st.warning("Attention: année de vente < année d'achat + 2 ans (simplification fiscale)")
 
 
-def render_graphs(owner_res: Dict[str, object], rental_res: Dict[str, object], model: RealEstateModel):
+def render_graphs(renting_1_res: Dict[str, object], renting_2_res: Dict[str, object], buying_1_res: Dict[str, object], buying_2_res: Dict[str, object], model: RealEstateModel):
     st.subheader("Graphiques")
-    st.info("Aucun graphique de cashflow affiché.")
-    owner_df = owner_res["yearly"]  # type: ignore[index]
-    rental_df = rental_res["yearly"]  # type: ignore[index]
+    renting_1_df = renting_1_res["annuel"]  # type: ignore[index]
+    renting_2_df = renting_2_res["annuel"]  # type: ignore[index]
+    buying_1_df = buying_1_res["annuel"]  # type: ignore[index]
+    buying_2_df = buying_2_res["annuel"]  # type: ignore[index]
 
-    # Benchmark series including monthly rent withdrawals
-    benchmark_series = []
-    for y in range(0, model.n_years + 1):
-        months = y * 12
-        val = future_value_with_monthly_withdrawals(
-            down_payment=float(model.inputs.down_payment),
-            annual_rate=float(model.inputs.benchmark_return_rate),
-            monthly_payment=max(0.0, float(model.inputs.benchmark_rent_monthly)),
-            months=months,
-        )
-        benchmark_series.append(val)
-    fig_worth = plots.net_worth_curve(owner_df, rental_df, benchmark_series, model.inputs.purchase_year)
-    st.plotly_chart(fig_worth, use_container_width=True)
-    st.download_button("Exporter PNG (Patrimoine)", data=fig_worth.to_image(format="png"), file_name="patrimoine.png", mime="image/png")
+    c1, c2 = st.columns(2)
+    with c1:
+        xs_1 = [int(model.inputs.purchase_year + int(y)) for y in renting_1_df["année"].tolist()]
+        series_1 = {
+            "Location 1": [float(v) for v in renting_1_df["cashflows_cumulés"].tolist()],
+            "Achat 1": [float(v) for v in buying_1_df["cashflows_cumulés"].tolist()],
+        }
+        fig1 = plots.npv_multi_curve(xs_1, series_1, "Année", title="Cumul cashflows - Location 1 vs Achat 1")
+        st.plotly_chart(fig1, use_container_width=True)
+        st.download_button("Exporter PNG (Cumul L1 vs A1)", data=fig1.to_image(format="png"), file_name="cumul_L1_A1.png", mime="image/png")
+    with c2:
+        xs_2 = [int(model.inputs.purchase_year + int(y)) for y in renting_2_df["année"].tolist()]
+        series_2 = {
+            "Location 2": [float(v) for v in renting_2_df["cashflows_cumulés"].tolist()],
+            "Achat 2": [float(v) for v in buying_2_df["cashflows_cumulés"].tolist()],
+        }
+        fig2 = plots.npv_multi_curve(xs_2, series_2, "Année", title="Cumul cashflows - Location 2 vs Achat 2")
+        st.plotly_chart(fig2, use_container_width=True)
+        st.download_button("Exporter PNG (Cumul L2 vs A2)", data=fig2.to_image(format="png"), file_name="cumul_L2_A2.png", mime="image/png")
 
 
-def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], model: RealEstateModel):
+def render_tables(renting_1_res: Dict[str, object], renting_2_res: Dict[str, object], buying_1_res: Dict[str, object], buying_2_res: Dict[str, object], model: RealEstateModel):
     st.subheader("Tableaux")
     view_monthly = st.toggle("Voir en mensuel", value=False)
 
     if not view_monthly:
-        # Benchmark apport – tableau annuel (d'abord)
-        st.markdown("Benchmark apport (annuel)")
-        try:
-            apport_vals, rent_costs, nets = benchmark_annual_table(
-                down_payment=model.inputs.down_payment,
-                annual_rate=model.inputs.benchmark_return_rate,
-                monthly_rent=float(model.inputs.benchmark_rent_monthly),
-                years=model.n_years,
-                inflation_rate=float(model.inputs.inflation_rate),
-            )
-        except TypeError:
-            apport_vals, rent_costs, nets = benchmark_annual_table(
-                down_payment=model.inputs.down_payment,
-                annual_rate=model.inputs.benchmark_return_rate,
-                monthly_rent=float(model.inputs.benchmark_rent_monthly),
-                years=model.n_years,
-            )
+        # IF-Vente avant Vente
+        st.markdown("Cashflows - Location 1 (annuel)")
+        renting_1_annual_df = renting_1_res["annuel"]  # type: ignore[index]
+        '''
+        desired_cols_renting_1_annual = [
+            "year",
+            "invested_value",
+            "gains",
+            "additional_savings",
+            "cashflow",
+            "cashflows_cumulés",
+        ]
+        renting_1_annual_df_disp = renting_1_annual_df[[c for c in desired_cols_renting_1_annual if c in renting_1_annual_df.columns]]
+        '''
+        st.dataframe(style_with_commas(renting_1_annual_df), use_container_width=True)
 
-        bm_cfs = [-float(model.inputs.down_payment)]
-        for y in range(1, model.n_years + 1):
-            rent_y = 12.0 * float(model.inputs.benchmark_rent_monthly) * (
-                (1.0 + float(model.inputs.inflation_rate)) ** (y - 1)
-            )
-            cf = -rent_y
-            if y == model.n_years:
-                cf += float(model.benchmark_apport())
-            bm_cfs.append(cf)
-
-        bm_cum = []
-        total = 0.0
-        for cf in bm_cfs:
-            total += float(cf)
-            bm_cum.append(total)
-
-        bm_df = pd.DataFrame(
-            {
-                "year": list(range(0, model.n_years + 1)),
-                "apport": apport_vals,
-                "loyer": rent_costs,
-                "net": nets,
-                "cashflow": bm_cfs,
-                "cumulative_cash": bm_cum,
-            }
-        )
-        st.dataframe(style_with_commas(bm_df), use_container_width=True)
         st.download_button(
-            "Exporter CSV Benchmark",
-            data=bm_df.to_csv(index=False).encode("utf-8"),
-            file_name="benchmark_annuel.csv",
+            "Exporter CSV Location 1",
+            data=renting_1_annual_df.to_csv(index=False).encode("utf-8"),
+            file_name="location_1_annuel.csv",
             mime="text/csv",
         )
 
@@ -309,12 +293,12 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
         amort_yearly = model.amort_yearly.copy()
         amort_yearly["cashflow"] = -amort_yearly["payment"]
         init_row_yearly = {
-            "year": 0,
-            "payment": 0.0,
-            "interest": 0.0,
+            "année": 0,
+            "mensualité": 0.0,
+            "intérêts": 0.0,
             "principal": 0.0,
-            "end_balance": float(model.loan_principal_value),
-            "cashflow": -float(model.inputs.down_payment),
+            "solde_restant_du_crédit": float(model.loan_principal_value),
+            "cashflows": -float(model.inputs.down_payment),
         }
         amort_yearly = pd.concat(
             [pd.DataFrame([init_row_yearly]), amort_yearly], ignore_index=True
@@ -327,94 +311,57 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
             mime="text/csv",
         )
 
-        st.markdown("Cashflows - Résidence principale (annuel)")
-        owner_df = owner_res["yearly"]  # type: ignore[index]
-        owner_df_disp = owner_df.drop(columns=["sale_proceeds"], errors="ignore")
-        desired_cols_owner_annual = [
-            "year",
-            "loan_payment",
-            "charges",
-            "cashflow",
-            "cumulative_cash",
-            "property_value",
-            "outstanding_balance",
-        ]
-        owner_df_disp = owner_df_disp[[c for c in desired_cols_owner_annual if c in owner_df_disp.columns]]
-        st.dataframe(style_with_commas(owner_df_disp), use_container_width=True)
-        st.download_button(
-            "Exporter CSV RP",
-            data=owner_df_disp.to_csv(index=False).encode("utf-8"),
-            file_name="cashflows_rp_annuel.csv",
-            mime="text/csv",
-        )
-        st.markdown(f"Produit net de vente (fin): {owner_res.get('sale_proceeds', 0.0):,.0f} €")
+        st.markdown("Cashflows - Achat 1 (annuel)")
+        buying_1_annual_df = buying_1_res["annuel"]  # type: ignore[index]
 
-        st.markdown("Cashflows - Location (annuel)")
-        rental_df = rental_res["yearly"]  # type: ignore[index]
-        rental_df_disp = rental_df.drop(columns=["sale_proceeds"], errors="ignore")
-        desired_cols_rental_annual = [
-            "year",
-            "cashflow",
-            "operating_before_debt",
-            "loan_payment",
-            "charges",
-            "rent_gross",
-            "cumulative_cash",
-            "property_value",
-            "outstanding_balance",
-        ]
-        rental_df_disp = rental_df_disp[[c for c in desired_cols_rental_annual if c in rental_df_disp.columns]]
-        st.dataframe(style_with_commas(rental_df_disp), use_container_width=True)
+        st.dataframe(style_with_commas(buying_1_annual_df), use_container_width=True)
+        # IRA just above sale proceeds (computed at sale year)
+        ira_buying_1 = model.early_repayment_penalty(model.n_sale_years)
         st.download_button(
-            "Exporter CSV Location",
-            data=rental_df_disp.to_csv(index=False).encode("utf-8"),
-            file_name="cashflows_location_annuel.csv",
+            "Exporter CSV Vente 1",
+            data=buying_1_annual_df.to_csv(index=False).encode("utf-8"),
+            file_name="cashflows_vente_1_annuel.csv",
             mime="text/csv",
         )
-        st.markdown(f"Produit net de vente (fin): {rental_res.get('sale_proceeds', 0.0):,.0f} €")
+        st.markdown(f"IRA (indemnités remboursement anticipé): {ira_buying_1:,.0f} €")
+        st.markdown(f"Produit net de vente 1 (fin): {buying_1_res.get('produit_net_de_vente', 0.0):,.0f} €")
+
+        # Location 2 avant Achat 2
+        st.markdown("Cashflows - Location 2 (annuel)")
+        renting_2_annual_df = renting_2_res["annuel"]  # type: ignore[index]
+        st.dataframe(style_with_commas(renting_2_annual_df), use_container_width=True)
+        st.download_button(
+            "Exporter CSV Location 2",
+            data=renting_2_annual_df.to_csv(index=False).encode("utf-8"),
+            file_name="location_2_annuel.csv",
+            mime="text/csv",
+        )
+
+        st.markdown("Cashflows - Achat 2 (annuel)")
+        buying_2_annual_df = buying_2_res["annuel"]  # type: ignore[index]
+        st.dataframe(style_with_commas(buying_2_annual_df), use_container_width=True)
+        # IRA for rental table: at evaluation end or sale year? Use sale year for consistency
+        ira_buying_2 = model.early_repayment_penalty(model.n_years)
+        st.download_button(
+            "Exporter CSV Achat 2",
+            data=buying_2_annual_df.to_csv(index=False).encode("utf-8"),
+            file_name="cashflows_achat_2_annuel.csv",
+            mime="text/csv",
+        )
+        st.markdown(f"IRA (indemnités remboursement anticipé): {ira_buying_2:,.0f} €")
+        st.markdown(f"Produit net de vente 2 (fin): {buying_2_res.get('produit_net_de_vente', 0.0):,.0f} €")
 
         return
 
     # ---- Monthly view ---- #
-    # Benchmark apport – tableau mensuel en premier
-    st.markdown("Benchmark apport (mensuel)")
-    months_total_local = model.n_years * 12
-    bm_rows_m = []
-    bm_rows_m.append({
-        "year": 0,
-        "month": 0,
-        "apport": model.inputs.down_payment,
-        "loyer": 0.0,
-        "net": model.inputs.down_payment,
-        "cashflow": -float(model.inputs.down_payment),
-        "cumulative_cash": -float(model.inputs.down_payment),
-    })
-    cum_cash_bm = -float(model.inputs.down_payment)
-    g_m = (1.0 + float(model.inputs.inflation_rate)) ** (1.0 / 12.0) - 1.0
-    rent_m = float(model.inputs.benchmark_rent_monthly)
-    for m in range(1, months_total_local + 1):
-        year_idx = (m - 1) // 12 + 1
-        if m > 1:
-            rent_m *= (1.0 + g_m)
-        cf = -rent_m
-        if m == months_total_local:
-            cf += float(model.benchmark_apport())
-        cum_cash_bm += cf
-        bm_rows_m.append({
-            "year": year_idx,
-            "month": m - (year_idx - 1) * 12,
-            "apport": None,
-            "loyer": None,
-            "net": None,
-            "cashflow": cf,
-            "cumulative_cash": cum_cash_bm,
-        })
-    bm_monthly_df = pd.DataFrame(bm_rows_m)
-    st.dataframe(style_with_commas(bm_monthly_df), use_container_width=True)
+    # IF-Vente – tableau mensuel en premier
+    st.markdown("Cashflows - Location 1 (mensuel)")
+    renting_1_monthly_df = renting_1_res["mensuel"]  # type: ignore[index]
+    st.dataframe(style_with_commas(renting_1_monthly_df), use_container_width=True)
     st.download_button(
-        "Exporter CSV Benchmark (mensuel)",
-        data=bm_monthly_df.to_csv(index=False).encode("utf-8"),
-        file_name="benchmark_mensuel.csv",
+        "Exporter CSV Location 1 (mensuel)",
+        data=renting_1_monthly_df.to_csv(index=False).encode("utf-8"),
+        file_name="location_1_mensuel.csv",
         mime="text/csv",
     )
 
@@ -422,6 +369,7 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
     amort_monthly = model.amort.schedule_monthly.copy()
     amort_monthly["cashflow"] = -amort_monthly["payment"]
     init_row_monthly = {
+        "year": 0,
         "month": 0,
         "payment": 0.0,
         "interest": 0.0,
@@ -440,259 +388,190 @@ def render_tables(owner_res: Dict[str, object], rental_res: Dict[str, object], m
         mime="text/csv",
     )
 
-    # Build monthly owner cashflows (approximation consistent with annual totals)
-    months_total = model.inputs.loan_years * 12
-    monthly_payment = float(model.amort.payment_monthly)
-    cum_cash = -model.inputs.down_payment
-    owner_rows = []
-    for y in range(1, model.n_years + 1):
-        # Annual non-debt charges for the year
-        charges_annual = (
-            model.inputs.property_tax_annual
-            + model.inputs.other_taxes_annual
-            + model._copro_charges(y)
-            + model._maintenance_cost(y)
-            + model._annual_insurance()
-        )
-        charge_monthly = float(charges_annual) / 12.0
-        for m in range(1, 13):
-            global_month = (y - 1) * 12 + m
-            if global_month > months_total:
-                break
-            # End-of-month balance from amortization schedule
-            try:
-                end_balance = float(model.amort.schedule_monthly.loc[model.amort.schedule_monthly["month"] == global_month, "balance"].values[0])
-            except IndexError:
-                end_balance = 0.0
-            cf = -monthly_payment - charge_monthly
-            sale_p = 0.0
-            if y == model.n_years and m == 12:
-                sale_p = float(model.sale_proceeds(y))
-                cf += sale_p
-            cum_cash += cf
-            # Use year-level property value for all months in that year
-            prop_val = model._property_value_at(y)
-            net_worth = prop_val - end_balance + cum_cash
-            owner_rows.append(
-                {
-                    "year": y,
-                    "month": m,
-                    "cashflow": cf,
-                    "loan_payment": monthly_payment,
-                    "charges": charge_monthly,
-                    "sale_proceeds": sale_p,
-                    "cumulative_cash": cum_cash,
-                    "property_value": prop_val,
-                    "outstanding_balance": end_balance,
-                    "net_worth": net_worth,
-                }
-            )
-
-    owner_monthly_df = pd.DataFrame(owner_rows)
-    st.markdown("Cashflows - Résidence principale (mensuel)")
-    owner_monthly_df_disp = owner_monthly_df.drop(columns=["sale_proceeds"], errors="ignore")
-    desired_cols_owner_monthly = [
-        "year",
-        "month",
-        "cashflow",
-        "loan_payment",
-        "charges",
-        "cumulative_cash",
-        "property_value",
-        "outstanding_balance",
-    ]
-    owner_monthly_df_disp = owner_monthly_df_disp[[c for c in desired_cols_owner_monthly if c in owner_monthly_df_disp.columns]]
-    st.dataframe(style_with_commas(owner_monthly_df_disp), use_container_width=True)
+    # Use monthly data from model
+    buying_1_monthly_df = buying_1_res["mensuel"]  # type: ignore[index]
+    st.markdown("Cashflows - Achat 1 (mensuel)")
+    st.dataframe(style_with_commas(buying_1_monthly_df), use_container_width=True)
     st.download_button(
-        "Exporter CSV RP (mensuel)",
-        data=owner_monthly_df_disp.to_csv(index=False).encode("utf-8"),
-        file_name="cashflows_rp_mensuel.csv",
+        "Exporter CSV Achat 1 (mensuel)",
+        data=buying_1_monthly_df.to_csv(index=False).encode("utf-8"),
+        file_name="cashflows_achat_1_mensuel.csv",
         mime="text/csv",
     )
-    st.markdown(f"Produit net de vente (fin): {model.sale_proceeds(model.n_years):,.0f} €")
+    st.markdown(f"Produit net de vente 1 (fin): {buying_1_res.get('produit_net_de_vente', 0.0):,.0f} €")
 
-    # Build monthly rental cashflows
-    cum_cash = -model.inputs.down_payment
-    rental_rows = []
-    for y in range(1, model.n_years + 1):
-        op_annual = model._rental_net_after_tax_before_debt(y)
-        op_monthly = float(op_annual) / 12.0
-        # Optional: rent gross monthly (for reference)
-        rent_gross_monthly = float(model._rental_revenue_gross(y)) / 12.0
-        for m in range(1, 13):
-            global_month = (y - 1) * 12 + m
-            if global_month > months_total:
-                break
-            try:
-                end_balance = float(model.amort.schedule_monthly.loc[model.amort.schedule_monthly["month"] == global_month, "balance"].values[0])
-            except IndexError:
-                end_balance = 0.0
-            cf = op_monthly - monthly_payment
-            sale_p = 0.0
-            if y == model.n_years and m == 12:
-                sale_p = float(model.sale_proceeds(y))
-                cf += sale_p
-            cum_cash += cf
-            prop_val = model._property_value_at(y)
-            net_worth = prop_val - end_balance + cum_cash
-            charges_monthly = rent_gross_monthly - op_monthly
-            rental_rows.append(
-                {
-                    "year": y,
-                    "month": m,
-                    "cashflow": cf,
-                    "operating_before_debt": op_monthly,
-                    "loan_payment": monthly_payment,
-                    "charges": charges_monthly,
-                    "sale_proceeds": sale_p,
-                    "cumulative_cash": cum_cash,
-                    "property_value": prop_val,
-                    "outstanding_balance": end_balance,
-                    "net_worth": net_worth,
-                    "rent_gross": rent_gross_monthly,
-                }
-            )
-
-    rental_monthly_df = pd.DataFrame(rental_rows)
-    st.markdown("Cashflows - Location (mensuel)")
-    rental_monthly_df_disp = rental_monthly_df.drop(columns=["sale_proceeds"], errors="ignore")
-    desired_cols_rental_monthly = [
-        "year",
-        "month",
-        "cashflow",
-        "operating_before_debt",
-        "loan_payment",
-        "charges",
-        "rent_gross",
-        "cumulative_cash",
-        "property_value",
-        "outstanding_balance",
-    ]
-    rental_monthly_df_disp = rental_monthly_df_disp[[c for c in desired_cols_rental_monthly if c in rental_monthly_df_disp.columns]]
-    st.dataframe(style_with_commas(rental_monthly_df_disp), use_container_width=True)
+    # IF-Location avant Location
+    st.markdown("Cashflows - Location 2 (mensuel)")
+    renting_2_monthly_df = renting_2_res["mensuel"]  # type: ignore[index]
+    st.dataframe(style_with_commas(renting_2_monthly_df), use_container_width=True)
     st.download_button(
-        "Exporter CSV Location (mensuel)",
-        data=rental_monthly_df_disp.to_csv(index=False).encode("utf-8"),
-        file_name="cashflows_location_mensuel.csv",
+        "Exporter CSV Location 2 (mensuel)",
+        data=renting_2_monthly_df.to_csv(index=False).encode("utf-8"),
+        file_name="location_2_mensuel.csv",
         mime="text/csv",
     )
-    st.markdown(f"Produit net de vente (fin): {model.sale_proceeds(model.n_years):,.0f} €")
 
-    # Benchmark apport – tableau mensuel (mêmes colonnes que l'annuel)
-    st.markdown("Benchmark apport (mensuel)")
-    months_total = model.n_years * 12
-    # Build monthly cashflows for benchmark with inflation growth on rent (converted monthly)
-    bm_rows_m = []
-    # CF0
-    bm_rows_m.append({"year": 0, "month": 0, "apport": model.inputs.down_payment, "loyer": 0.0, "net": model.inputs.down_payment, "cashflow": -float(model.inputs.down_payment), "cumulative_cash": -float(model.inputs.down_payment)})
-    cum_cash_bm = -float(model.inputs.down_payment)
-    # Monthly growth from annual inflation
-    g_m = (1.0 + float(model.inputs.inflation_rate)) ** (1.0 / 12.0) - 1.0
-    rent_m = float(model.inputs.benchmark_rent_monthly)
-    for m in range(1, months_total + 1):
-        year_idx = (m - 1) // 12 + 1
-        # grow rent monthly
-        if m > 1:
-            rent_m *= (1.0 + g_m)
-        cf = -rent_m
-        if m == months_total:
-            cf += float(model.benchmark_apport())
-        cum_cash_bm += cf
-        bm_rows_m.append({
-            "year": year_idx,
-            "month": m - (year_idx - 1) * 12,
-            "apport": None,
-            "loyer": None,
-            "net": None,
-            "cashflow": cf,
-            "cumulative_cash": cum_cash_bm,
-        })
-    bm_monthly_df = pd.DataFrame(bm_rows_m)
-    st.dataframe(style_with_commas(bm_monthly_df), use_container_width=True)
+    # Use monthly data from model
+    st.markdown("Cashflows - Achat 2 (mensuel)")
+    buying_2_monthly_df = buying_2_res["mensuel"]  # type: ignore[index]
+    # Map rent_personal to rent for consistency
+    st.dataframe(style_with_commas(buying_2_monthly_df), use_container_width=True)
     st.download_button(
-        "Exporter CSV Benchmark (mensuel)",
-        data=bm_monthly_df.to_csv(index=False).encode("utf-8"),
-        file_name="benchmark_mensuel.csv",
+        "Exporter CSV Achat 2 (mensuel)",
+        data=buying_2_monthly_df.to_csv(index=False).encode("utf-8"),
+        file_name="cashflows_achat_2_mensuel.csv",
         mime="text/csv",
     )
+    st.markdown(f"Produit net de vente 2 (fin): {buying_2_res.get('produit_net_de_vente', 0.0):,.0f} €")
+
+    # (Removed duplicate monthly benchmark table to avoid confusion)
 
 
 def render_sensitivity(model: RealEstateModel):
-    st.subheader("Sensibilité Δ NPV (RP vs Benchmark)")
-    # Baseline delta NPV = NPV(RP) - NPV(Benchmark)
-    def delta_npv_for(temp_inputs: InvestmentInputs) -> float:
+    st.subheader("Sensibilité NPV par scénario")
+
+    # Toggle to switch between NPV and Cumulated cashflows
+    view_cumulated = st.toggle("Afficher Cumulé (au lieu de NPV)", value=False)
+    metric_title = "Cumulé par scénario" if view_cumulated else "NPV par scénario"
+
+    def metric_for(temp_inputs: InvestmentInputs) -> Dict[str, float]:
         m = RealEstateModel(temp_inputs)
-        discount = float(temp_inputs.discount_rate)
-        owner = float(m.npv(discount, "owner") or 0.0)
-        # Build benchmark cashflows consistent with résumé logic
-        bm_cfs = [-float(temp_inputs.down_payment)]
-        for y in range(1, m.n_years + 1):
-            rent_y = 12.0 * float(temp_inputs.benchmark_rent_monthly) * ((1.0 + float(temp_inputs.inflation_rate)) ** (y - 1))
-            cf = -rent_y
-            if y == m.n_years:
-                cf += float(m.benchmark_apport())
-            bm_cfs.append(cf)
-        bm_npv = 0.0
-        for t, cf in enumerate(bm_cfs):
-            bm_npv += cf / ((1 + discount) ** t)
-        return owner - bm_npv
+        if view_cumulated:
+            buying_1 = float(sum(m.run_buying_1().get("cashflows", [])))  # type: ignore[arg-type]
+            buying_2 = float(sum(m.run_buying_2().get("cashflows", [])))  # type: ignore[arg-type]
+            renting_1 = float(sum(m.run_renting("buying_1").get("cashflows", [])))  # type: ignore[arg-type]
+            renting_2 = float(sum(m.run_renting("buying_2").get("cashflows", [])))  # type: ignore[arg-type]
+        else:
+            discount = float(temp_inputs.discount_rate)
+            buying_1 = float(m.npv(discount, "buying_1") or 0.0)
+            buying_2 = float(m.npv(discount, "buying_2") or 0.0)
+            renting_1 = float(m.npv(discount, "renting_1") or 0.0)
+            renting_2 = float(m.npv(discount, "renting_2") or 0.0)
+        
+        return {"Achat 1": buying_1, "Achat 2": buying_2, "Location 1": renting_1, "Location 2": renting_2}
+
+    # Style helper: match Location colors to corresponding Achat and make them dotted
+    def _style_location_vs_buy(fig):
+        color_map = {
+            "Achat 1": "#1f77b4",   # blue
+            "Location 1": "#1f77b4",
+            "Achat 2": "#d62728",   # red
+            "Location 2": "#d62728",
+        }
+        for tr in getattr(fig, "data", []):
+            name = getattr(tr, "name", "")
+            if name in color_map:
+                tr.update(line=dict(color=color_map[name], dash=("dot" if name.startswith("Location") else "solid")))
+        return fig
 
     # Ranges around current values
     pr_min = max(-0.1, model.inputs.price_growth_rate - 0.02)
     pr_max = model.inputs.price_growth_rate + 0.02
-    hr_min = max(1, model.n_years - 2)
-    hr_max = model.n_years + 2
     ar_min = max(0.0, model.inputs.benchmark_return_rate - 0.02)
     ar_max = model.inputs.benchmark_return_rate + 0.02
+    # Evaluation horizons range (ensure >= sale horizon + 1)
+    eval_base = int(getattr(model.inputs, "evaluation_years", model.n_years))
+    eval_min = max(int(model.n_sale_years) + 1, eval_base - 2)
+    eval_max = max(eval_min + 1, eval_base + 2)
 
     price_rates = np.linspace(pr_min, pr_max, 9).tolist()
-    horizons = list(range(hr_min, hr_max + 1))
+    eval_horizons = list(range(eval_min, eval_max + 1))
     alt_returns = np.linspace(ar_min, ar_max, 9).tolist()
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        ys = []
+        # Horizon avant vente (years from purchase to sale)
+        base_sale_h = int(model.n_sale_years)
+        h_min = max(1, base_sale_h - 2)
+        h_max = max(h_min + 1, base_sale_h + 2)
+        sale_horizons = list(range(h_min, h_max + 1))
+        series = {"Achat 1": [], "Achat 2": [], "Location 1": [], "Location 2": []}
+        for h in sale_horizons:
+            data = asdict(model.inputs)
+            data["sale_year"] = int(model.inputs.purchase_year + int(h))
+            # Keep evaluation horizon fixed if possible, but ensure >= sale + 1
+            base_eval = int(model.inputs.evaluation_years)
+            data["evaluation_years"] = int(max(base_eval, int(h) + 1))
+            vals = metric_for(InvestmentInputs(**data))
+            for k in series:
+                series[k].append(vals[k])
+        fig = plots.npv_multi_curve([float(h) for h in sale_horizons], series, "Horizon avant vente (années)", title=metric_title)
+        fig = _style_location_vs_buy(fig)
+        st.plotly_chart(fig, use_container_width=True)
+    with c2:
+        series = {"Achat 1": [], "Achat 2": [], "Location 1": [], "Location 2": []}
+        for h in eval_horizons:
+            data = asdict(model.inputs)
+            # keep sale_year fixed; vary evaluation horizon
+            data["evaluation_years"] = int(max(h, int(model.n_sale_years) + 1))
+            vals = metric_for(InvestmentInputs(**data))
+            for k in series:
+                series[k].append(vals[k])
+        fig = plots.npv_multi_curve([float(h) for h in eval_horizons], series, "Horizon d'évaluation (années)", title=metric_title)
+        fig = _style_location_vs_buy(fig)
+        st.plotly_chart(fig, use_container_width=True)
+    with c3:
+        # Taux crédit
+        lr_min = max(0.0, float(model.inputs.loan_rate) - 0.02)
+        lr_max = float(model.inputs.loan_rate) + 0.02
+        loan_rates = np.linspace(lr_min, lr_max, 9).tolist()
+        series = {"Achat 1": [], "Achat 2": [], "Location 1": [], "Location 2": []}
+        for r in loan_rates:
+            data = asdict(model.inputs)
+            data["loan_rate"] = float(r)
+            vals = metric_for(InvestmentInputs(**data))
+            for k in series:
+                series[k].append(vals[k])
+        fig = plots.npv_multi_curve(loan_rates, series, "Taux crédit", title=metric_title, percent_x=True)
+        fig = _style_location_vs_buy(fig)
+        st.plotly_chart(fig, use_container_width=True)
+
+
+    # Second row of sensitivities
+    c4, c5, c6 = st.columns(3)
+    with c4:
+        series = {"Achat 1": [], "Achat 2": [], "Location 1": [], "Location 2": []}
         for r in price_rates:
             data = asdict(model.inputs)
             data["price_growth_rate"] = float(r)
-            ys.append(delta_npv_for(InvestmentInputs(**data)))
-        fig = plots.delta_npv_curve(price_rates, ys, "Évolution prix immo")
+            vals = metric_for(InvestmentInputs(**data))
+            for k in series:
+                series[k].append(vals[k])
+        fig = plots.npv_multi_curve(price_rates, series, "Évolution prix immo", title=metric_title, percent_x=True)
+        fig = _style_location_vs_buy(fig)
         st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        ys = []
-        for h in horizons:
-            data = asdict(model.inputs)
-            data["sale_year"] = int(data["purchase_year"]) + int(h)
-            ys.append(delta_npv_for(InvestmentInputs(**data)))
-        fig = plots.delta_npv_curve([float(h) for h in horizons], ys, "Horizon avant vente (années)")
-        st.plotly_chart(fig, use_container_width=True)
-    with c3:
-        ys = []
+
+    with c5:
+        series = {"Achat 1": [], "Achat 2": [], "Location 1": [], "Location 2": []}
         for r in alt_returns:
             data = asdict(model.inputs)
             data["benchmark_return_rate"] = float(r)
-            ys.append(delta_npv_for(InvestmentInputs(**data)))
-        fig = plots.delta_npv_curve(alt_returns, ys, "Rendement benchmark")
+            vals = metric_for(InvestmentInputs(**data))
+            for k in series:
+                series[k].append(vals[k])
+        fig = plots.npv_multi_curve(alt_returns, series, "Rendement investissement financier", title=metric_title, percent_x=True)
+        fig = _style_location_vs_buy(fig)
         st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("Surface 3D: Δ NPV (RP vs Benchmark)")
-    # Build grid for surface: X=price growth, Y=benchmark return
-    x_vals = price_rates
-    y_vals = alt_returns
-    z_rows: List[List[float]] = []
-    for br in y_vals:
-        row = []
-        for pr in x_vals:
+    with c6:
+        # Apport (en faisant varier le montant d'apport)
+        dp_base = float(model.inputs.down_payment)
+        dp_min = max(0.0, dp_base * 0.8)
+        dp_max = max(dp_min + 1.0, dp_base * 1.2)
+        down_payments = np.linspace(dp_min, dp_max, 9).tolist()
+        series = {"Achat 1": [], "Achat 2": [], "Location 1": [], "Location 2": []}
+        for a in down_payments:
             data = asdict(model.inputs)
-            data["price_growth_rate"] = float(pr)
-            data["benchmark_return_rate"] = float(br)
-            row.append(delta_npv_for(InvestmentInputs(**data)))
-        z_rows.append(row)
-    fig3d = plots.delta_npv_surface(x_vals, y_vals, z_rows, "Évolution prix immo", "Rendement benchmark")
-    st.plotly_chart(fig3d, use_container_width=True)
+            data["down_payment"] = float(a)
+            vals = metric_for(InvestmentInputs(**data))
+            for k in series:
+                series[k].append(vals[k])
+        fig = plots.npv_multi_curve([float(x) for x in down_payments], series, "Apport (€)", title=metric_title)
+        fig = _style_location_vs_buy(fig)
+        st.plotly_chart(fig, use_container_width=True)
 
 
-def render_report(owner_res: Dict[str, object], rental_res: Dict[str, object], model: RealEstateModel):
+def render_report(renting_1_res: Dict[str, object], renting_2_res: Dict[str, object], buying_1_res: Dict[str, object], buying_2_res: Dict[str, object], model: RealEstateModel):
     st.subheader("Rapport")
     if st.button("Générer PDF"):
         buffer = io.BytesIO()
@@ -704,12 +583,12 @@ def render_report(owner_res: Dict[str, object], rental_res: Dict[str, object], m
         story.append(Paragraph(f"Mensualité: {model.amort.payment_monthly:,.0f} €".replace(",", " "), styles["Normal"]))
         irr_owner = owner_res.get("irr")
         irr_rental = rental_res.get("irr")
-        story.append(Paragraph(f"IRR (RP): {irr_owner:.2%}" if irr_owner is not None else "IRR (RP): -", styles["Normal"]))
+        story.append(Paragraph(f"IRR (Vente): {irr_owner:.2%}" if irr_owner is not None else "IRR (Vente): -", styles["Normal"]))
         story.append(Paragraph(f"IRR (Location): {irr_rental:.2%}" if irr_rental is not None else "IRR (Location): -", styles["Normal"]))
-        story.append(Paragraph(f"NPV (RP): {owner_res.get('npv', 0.0):,.0f} €".replace(",", " "), styles["Normal"]))
+        story.append(Paragraph(f"NPV (Vente): {owner_res.get('npv', 0.0):,.0f} €".replace(",", " "), styles["Normal"]))
         story.append(Paragraph(f"NPV (Location): {rental_res.get('npv', 0.0):,.0f} €".replace(",", " "), styles["Normal"]))
         story.append(Paragraph(f"Produit net de vente (fin): {owner_res.get('sale_proceeds', 0.0):,.0f} €".replace(",", " "), styles["Normal"]))
-        story.append(Paragraph(f"Benchmark apport (final): {model.benchmark_apport():,.0f} €".replace(",", " "), styles["Normal"]))
+        story.append(Paragraph(f"IF apport (final): {model.financial_investment():,.0f} €".replace(",", " "), styles["Normal"]))
         doc.build(story)
         buffer.seek(0)
         st.download_button("Télécharger PDF", data=buffer, file_name="rapport.pdf", mime="application/pdf")
@@ -720,28 +599,68 @@ def main():
     inputs = sidebar_inputs()
     model = RealEstateModel(inputs)
 
-    owner_res = model.run_owner()
-    rental_res = model.run_rental()
+    renting_1_res = model.run_renting("buying_1")
+    renting_2_res = model.run_renting("buying_2")
+    buying_1_res = model.run_buying_1()
+    buying_2_res = model.run_buying_2()
 
-    tabs = st.tabs(["Résumé", "Graphiques", "Tableaux", "Sensibilité", "Paramètres fiscaux"])
+    tabs = st.tabs(["Résumé", "Graphiques", "Tableaux", "Sensibilité", "Explication des scénarios"])
     with tabs[0]:
-        render_summary(owner_res, rental_res, model)
+        render_summary(renting_1_res, renting_2_res, buying_1_res, buying_2_res, model)
     with tabs[1]:
-        render_graphs(owner_res, rental_res, model)
+        render_graphs(renting_1_res, renting_2_res, buying_1_res, buying_2_res, model)
     with tabs[2]:
-        render_tables(owner_res, rental_res, model)
+        render_tables(renting_1_res, renting_2_res, buying_1_res, buying_2_res, model)
     with tabs[3]:
         render_sensitivity(model)
     with tabs[4]:
-        st.info("Les paramètres fiscaux sont modifiables dans la barre latérale.")
-        st.json({
-            "rental_tax_rate": inputs.rental_tax_rate,
-            "capital_gains_eff_rate": inputs.capital_gains_eff_rate,
-            "selling_fees_rate": inputs.selling_fees_rate,
-        })
+        st.subheader("Explication des scénarios et des cashflows")
+        st.markdown(
+            """
+            Voici comment sont construits les scénarios et leurs flux de trésorerie (cashflows). Par convention, un montant positif est un encaissement, un montant négatif un décaissement.
+
+            Dans chaque cas, un scénario de location est comparé à un scénario d'achat.
+            Dans les scénarios de location, le loyer n'est pas compté dans le cashflow. Mais il est pris en compte dans les scénarios d'achats, comme un loyer évité (en positif).
+
+            L'hypothèse a été faite que si le cashflow est positif, il est investi. Si il est négatif, il n'est pas retiré du capital investi.
+
+            - Achat 1 : achat en résidence principale pour occuper le bien jusqu'à sa vente (horizon avant vente), puis l'argent de la vente est investie jusqu'à l'horizon d'évaluation.
+                - Cashflows initial : -apport
+                - Cashflows avant vente : -mensualité - charges + loyer évité
+                - Cashflows à la vente : le produit de la vente est directement investi jusqu'à l'horizon d'évaluation, il n'apparait donc pas dans le cashflow à cette date.
+                - Cashflows à l'évaluation : gains - taxations sur les gains + capital investi
+
+            - Location 1 : location du bien occupé, l'apport qui aurait été utilisé pour l'achat est investi jusqu'à l'horizon d'évaluation.
+                La différence entre le loyer payé et le coût récurrent total d'Achat 1 est investie.
+                - Cashflows initial : -apport
+                - Cashflows avant vente d'Achat 1 : mensualité + charges - loyer payé
+                - Cashflows après vente d'Achat 1 : 0
+                - Cashflows à l'évaluation : gains - taxations sur les gains + capital investi
+
+            - Achat 2 : achat en résidence principale pour occuper le bien jusqu'à horizon de vente, le bien est ensuite mis en location. Le bien n'est plus occupé par l'acheteur, il faut donc que l'acheteur paye un loyer.
+                - Cashflows initial : -apport
+                - Cashflows avant vente : -mensualité - charges + loyer évité
+                - Cashflows après l'horizon de vente : -mensualité - charges + loyers perçus
+                - Cashflows à l'évaluation : produit de la vente + gains - taxations sur les gains + capital investi
+            
+            - Location 2 : location du bien occupé, l'apport qui aurait été utilisé pour l'achat est investi jusqu'à l'horizon d'évaluation.
+                La différence entre le loyer payé et le coût récurrent total d'Achat 2 est investie.
+                - Cashflows initial : -apport
+                - Cashflows avant mise en location d'Achat 2 : mensualité + charges - loyer payé (payés par Location 2)
+                - Cashflows après mise en location d'Achat 2 : mensualité + charges - loyers perçus (perçus par Achat 2, pas de loyés payés car Achat 2 et Location 2 payent le même loyer)
+                - Cashflows à l'évaluation : gains - taxations sur les gains + capital investi
+
+            Notes complémentaires:
+            - L’IRA (indemnités de remboursement anticipé), si activée, est déduite du produit de vente (6 mois d'intérêts).
+            - Le « loyer évité » est bien pris en compte dans les scénarios d’achat (Achat 1 / Achat 2) tant que le bien est occupé.
+            - Dans les scénarios « Location 1 » / « Location 2 » (investissement financier de référence), la **différence de coûts récurrents** est appliquée chaque mois à l’investissement financier:
+              `différence = net des charges du scénario Achat - net des charges du scénario Location`. Si la différence est positive, elle est **investie** (apport supplémentaire) ; si elle est négative, elle n'est pas retirée du capital investi mais apparait dans le cashflow en négatif.
+            - Les tableaux « annuel/mensuel » exposent les composantes (paiements, charges, loyers, gains) ainsi que `cashflows` et `cashflows_cumulés`.
+            """
+        )
 
     st.divider()
-    render_report(owner_res, rental_res, model)
+    render_report(renting_1_res, renting_2_res, buying_1_res, buying_2_res, model)
 
 
 if __name__ == "__main__":

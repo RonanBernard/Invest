@@ -1,14 +1,14 @@
 # Purchase & costs
-price: 250000.0
+price: 240000.0   # 4800 €/m2 x 50 m2
 notary_pct: 7.5 # %
-agency_pct: 3 # %
-renovation_costs: 10000.0
-extra_fees: 2000.0
+agency_pct: 0.0 # %
+renovation_costs: 2000.0
+extra_fees: 0.0
 
 # Loan
 loan_rate: 3 # %
 loan_years: 20
-down_payment: 50000.0
+down_payment: 100000.0
 
 # Recurring costs
 property_tax_annual: 1200.0
@@ -20,24 +20,27 @@ maintenance_rate_of_value: 1 # %
 
 # Growth & timeline
 benchmark_return_rate: 5 # %
-price_growth_rate: 0 # %
+price_growth_rate: 2.5 # %  Prix de l'immobilier
 inflation_rate: 2 # %
 invest_duration: 5
+evaluation_years: 10  # Horizon d'évaluation (années) > invest_duration
 
 # Discounting
-discount_rate: 4 # % (taux d'actualisation commun)
-
+discount_rate: 5 # % (taux d'actualisation commun) = taux de rentabilité moyen attendu si placement financier
 
 # Rental specific
 occupancy_rate: 0.92
-rent_monthly: 1100.0
+rent_monthly: 850  # 17 €/m2 x 50 m2
 rent_growth_rate: 2 # %
 management_fee_rate: 6 # %
-rental_tax_rate: 30 # %
+rental_tax_rate: 0 # %
 
 # Exit costs/taxes
 selling_fees_rate: 5 # %
 capital_gains_eff_rate: 0 # % for RP by default
 include_early_repayment_penalty: true
-benchmark_rent_monthly: 800.0
+benchmark_rent_monthly: 850
+
+# Financial investment taxation
+financial_investment_tax_rate: 25 # % applied on invested value at evaluation end
 

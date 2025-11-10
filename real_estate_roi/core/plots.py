@@ -13,12 +13,15 @@ def cashflow_bars(yearly_df: pd.DataFrame, title: str = "Cashflow annuel") -> go
 
 
 def net_worth_curve(
+    if_df: Optional[pd.DataFrame],
     owner_df: Optional[pd.DataFrame],
     rental_df: Optional[pd.DataFrame],
-    benchmark_series: Optional[List[float]],
     purchase_year: int,
 ) -> go.Figure:
     fig = go.Figure()
+    x_if = (
+        if_df["year"].apply(lambda y: purchase_year + y).tolist() if if_df is not None else []
+    )
     x_owner = (
         owner_df["year"].apply(lambda y: purchase_year + y).tolist() if owner_df is not None else []
     )
@@ -26,19 +29,42 @@ def net_worth_curve(
         rental_df["year"].apply(lambda y: purchase_year + y).tolist() if rental_df is not None else []
     )
 
+    if if_df is not None:
+        fig.add_trace(go.Scatter(x=x_if, y=if_df["net_worth"], mode="lines", name="Patrimoine IF"))
     if owner_df is not None:
-        fig.add_trace(go.Scatter(x=x_owner, y=owner_df["net_worth"], mode="lines", name="Patrimoine RP"))
+        fig.add_trace(go.Scatter(x=x_owner, y=owner_df["net_worth"], mode="lines", name="Patrimoine Vente"))
     if rental_df is not None:
         fig.add_trace(go.Scatter(x=x_rental, y=rental_df["net_worth"], mode="lines", name="Patrimoine Location"))
-    if benchmark_series is not None and len(benchmark_series) > 1:
-        # Build cumulative wealth for benchmark as just the invested amount growth (no property)
-        years = list(range(1, len(benchmark_series)))
-        x_bm = [purchase_year + y for y in years]
-        fig.add_trace(
-            go.Scatter(x=x_bm, y=benchmark_series[1:], mode="lines", name="Benchmark Apport")
-        )
 
     fig.update_layout(title="Patrimoine net cumulé", xaxis_title="Année", yaxis_title="€")
+    return fig
+
+
+def cumulative_cash_curve(
+    if_df: Optional[pd.DataFrame],
+    owner_df: Optional[pd.DataFrame],
+    rental_df: Optional[pd.DataFrame],
+    purchase_year: int,
+) -> go.Figure:
+    fig = go.Figure()
+    x_if = (
+        if_df["year"].apply(lambda y: purchase_year + y).tolist() if if_df is not None else []
+    )
+    x_owner = (
+        owner_df["year"].apply(lambda y: purchase_year + y).tolist() if owner_df is not None else []
+    )
+    x_rental = (
+        rental_df["year"].apply(lambda y: purchase_year + y).tolist() if rental_df is not None else []
+    )
+
+    if if_df is not None:
+        fig.add_trace(go.Scatter(x=x_if, y=if_df["cumulative_cash"], mode="lines", name="Cumul IF"))
+    if owner_df is not None:
+        fig.add_trace(go.Scatter(x=x_owner, y=owner_df["cumulative_cash"], mode="lines", name="Cumul Vente"))
+    if rental_df is not None:
+        fig.add_trace(go.Scatter(x=x_rental, y=rental_df["cumulative_cash"], mode="lines", name="Cumul Location"))
+
+    fig.update_layout(title="Cumul des cashflows", xaxis_title="Année", yaxis_title="€")
     return fig
 
 
@@ -79,7 +105,7 @@ def irr_sensitivity_curve(xs: List[float], ys: List[float], x_label: str) -> go.
 def delta_npv_curve(xs: List[float], ys: List[float], x_label: str) -> go.Figure:
     fig = go.Figure(go.Scatter(x=xs, y=ys, mode="lines+markers"))
     fig.update_layout(
-        title=f"Δ NPV (RP vs Benchmark) vs {x_label}", xaxis_title=x_label, yaxis_title="€"
+        title=f"Δ NPV (Vente vs IF) vs {x_label}", xaxis_title=x_label, yaxis_title="€"
     )
     return fig
 
@@ -116,7 +142,7 @@ def delta_npv_surface(
         ]
     )
     fig.update_layout(
-        title="Δ NPV (RP vs Benchmark)",
+        title="Δ NPV (Vente vs IF)",
         scene=dict(
             xaxis_title=x_label,
             yaxis_title=y_label,
@@ -124,5 +150,28 @@ def delta_npv_surface(
         ),
         margin=dict(l=0, r=0, b=0, t=40),
     )
+    return fig
+
+
+def npv_multi_curve(
+    xs: List[float],
+    series: Dict[str, List[float]],
+    x_label: str,
+    title: str = "NPV par scénario",
+    percent_x: bool = False,
+) -> go.Figure:
+    """Plot multi-series NPV curves vs a parameter.
+
+    series: mapping label -> list of y values aligned with xs.
+    """
+    fig = go.Figure()
+    for name, ys in series.items():
+        fig.add_trace(
+            go.Scatter(x=xs, y=ys, mode="lines+markers", name=name)
+        )
+    fig.update_layout(title=title, xaxis_title=x_label, yaxis_title="€")
+    if percent_x:
+        # Display x axis values as percentages (e.g., 0.02 -> 2%)
+        fig.update_xaxes(tickformat=".0%")
     return fig
 
